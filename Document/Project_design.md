@@ -17,7 +17,7 @@
 - 去掉 lvgl：将 `/etc/init.d/S05lvg` 替换成其他的名称，例如：`bak_S05lvg`
 - 让屏幕不再自动熄灭：`echo -e  "\033[9;0]"  > /dev/tty0`
 
-## freetype 编译方法
+## freetype
 
 - 工具链缺少 brotli，因此需要先下载源码并编译
 - 编译完成后将 lib 和 include 拷贝到工具链中去，并将 lib 拷贝到开发板上的 lib 目录下
@@ -60,3 +60,9 @@ arm-buildroot-linux-gnueabihf-gcc -o show_line show_line.c \
 电子阅读器要求包括：
 - 触摸屏：需要通过 input 子系统获取到触碰事件
 - LCD 显示：需要显示文字
+
+
+
+# 参考 100ask 设计
+
+

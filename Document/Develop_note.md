@@ -1,7 +1,8 @@
 # 开发日记
 
 ## 2025-08-01
-今日主要工作任务：搭建开发环境，buildroot 编译成功，生成了各种镜像文件。开发板测试能够ping通主机，并使用mount挂载主机的NFS成功
+今日主要工作内容：
+- 搭建开发环境，buildroot 编译成功，生成了各种镜像文件。开发板测试能够ping通主机，并使用mount挂载主机的NFS成功
 - buildroot 编译报错，参考解决网页：
 	- https://whycan.com/t_11252.html
 	- https://blog.csdn.net/gz521125/article/details/135589423
@@ -20,5 +21,12 @@
 
 
 ## 2025-08-02
-今日主要任务：开发板使用 framebuffer 成功点亮屏幕，移植 libpng、libfreetype 到开发板显示字体
+今日主要工作内容：
+- 开发板使用 framebuffer 成功点亮屏幕，移植 libpng、libfreetype 到开发板显示字体
 
+
+## 2025-08-03
+今日主要工作内容：
+- 熟悉 freetype 库
+- 编译 100ask 平台的电子书阅读器并在开发板上运行，能够通过串口控制开发板翻页
+- 基于 100ask 平台的代码结构，搭建自己的电子书阅读器项目
