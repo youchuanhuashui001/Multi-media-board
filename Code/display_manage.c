@@ -1,11 +1,27 @@
+#include <stdio.h>
+#include <string.h>
 #include "display_manage.h"
+#include "fb.h"
 
 PT_Display_Opr g_Display_Head = NULL;
 
 int Display_Init(void)
 {
-	//TODO: Maybe other display oprs
-	FB_Init();
+	PT_Display_Opr display_list = g_Display_Head;
+	int ret;
+
+	for (display_list = g_Display_Head; display_list; display_list = display_list->Next) {
+		if (display_list->Init) {
+			ret = display_list->Init();
+			if (ret < 0) {
+				printf("Register %s failed.\n", display_list->name);
+				return ret;
+			}
+			printf("Register %s suscess.\n", display_list->name);
+		} else {
+			printf("Register %s failed\n", display_list->name);
+		}
+	}
 
 	return 0;
 }
@@ -69,4 +85,19 @@ void Show_Display_Opr(void)
 		pDispOpr = pDispOpr->Next;
 	}
 
+}
+
+PT_Display_Opr Get_Display_Opt(char *name)
+{
+	PT_Display_Opr pDispOpr = g_Display_Head;
+
+	while (pDispOpr != NULL) {
+		if (strcmp(name, pDispOpr->name) == 0) {
+			printf("Display_Opr: %s\n", pDispOpr->name);
+			return pDispOpr;
+		}
+		pDispOpr = pDispOpr->Next;
+	}
+
+	return NULL;
 }

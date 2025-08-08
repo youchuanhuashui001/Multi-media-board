@@ -8,7 +8,7 @@ typedef struct Display_Opr {
     int Bpp;
     int (*Init)(void);
     int (*Show_Pixel)(int x, int y, int color);
-    int (*Clean_Screen)(void);
+    int (*Clean_Screen)(unsigned int back_color);
     struct Display_Opr *Next;
 } T_Display_Opr, *PT_Display_Opr;
 
@@ -21,5 +21,7 @@ int Register_Disp_Opr(PT_Display_Opr pDispOpr);
 int UnRegister_Disp_Opr(PT_Display_Opr pDispOpr);
 // 显示所有的显示器
 void Show_Display_Opr(void);
+// 获取显示器
+PT_Display_Opr Get_Display_Opt(char *name);
 
 #endif
