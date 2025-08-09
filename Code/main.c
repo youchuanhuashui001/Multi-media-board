@@ -6,28 +6,59 @@
 #include "display_manage.h"
 #include "fb.h"
 #include "draw.h"
+#include "font_manage.h"
+#include "encoding_manage.h"
+
+extern int OpenTextFile(char *pcFileName);
+extern int SetTextDetail(char *pcHZKFile, char *pcFileFreetype, unsigned int dwFontSize);
+extern int SelectAndInitDisplay(char *pcName);
+
+
+extern int test_show_one_font(void);
 
 int main(int argc, char **argv)
 {
+	char TextFile[128];
+	char FontFile[128];
 
-	/* register */
+	strncpy(TextFile, argv[1], 128);
+	TextFile[127] = '\0';
+
+	strncpy(FontFile, argv[2], 128);
+	FontFile[127] = '\0';
+
+	/* ************************** register start ******************* */
+
+	/* display */
 	fb_register();
 
-	/* init */
+	/* font */
+	ascii_register();
+	gbk_register();
+	freetype_register();
+
+	/* encoding */
+//	utf8_register();
+
+	/* ************************** register end ******************* */
+
+
+
+	/* ************************** init start ******************* */
 	Display_Init();
+	FontsInit();
+	EncodingInit();
+	/* ************************** init end ******************* */
+
+	OpenTextFile(TextFile);
+	SetTextDetail(NULL, FontFile, 24);
+	SelectAndInitDisplay("fb");
+
+	test_show_one_font();
+
 
 	while (1) {
 
-		draw_point(0x33ff00ff);
-		sleep(3);
-		draw_point(0x330000ff);
-		sleep(3);
-		draw_point(0x3300ff00);
-		sleep(3);
-		draw_point(0x33ff0000);
-		sleep(3);
-		draw_point(0x33ff3333);
-		sleep(3);
 	}
 
 	return 0;

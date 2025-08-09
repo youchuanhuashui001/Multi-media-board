@@ -5,11 +5,22 @@ LD := $(CROSS_COMPILE)ld
 
 # 包含freetype2的头文件
 CFLAGS := -Ihome/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/include
+CFLAGS += -I./
 CFLAGS += -L/home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/lib
 LDFLAGS := -lfreetype -lbrotlidec -lbrotlicommon
 
 # 2. 推导变量
-OBJS := $(patsubst %.c,%.o,$(wildcard *.c))
+OBJS := main.o \
+	display_manage.o \
+	fb.o \
+	font_manage.o \
+	font/ascii.o \
+	font/gbk.o \
+	font/freetype.o \
+	encoding_manage.o \
+	encoding/utf-8.o \
+	draw.o \
+
 TARGET := main
 
 # 3. 编译规则
