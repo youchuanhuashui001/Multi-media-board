@@ -1,2 +1,19 @@
 Code/module/lib/*
 Document/.obsidian/
+.cache/
+Code/module/lcd/lib/brotli/
+Code/.cache/
+
+# ===================================================
+# 以下是本次新增的规则
+
+# 忽略 VSCode/Clangd 等编辑器/工具生成的缓存
+Code/.cache/
+
+# 忽略由CMake/Meson等工具生成的编译命令数据库
+Code/compile_commands.json
+
+# 忽略第三方库，例如 brotli
+Code/module/lcd/lib/brotli/
+
+# ===================================================
