@@ -24,6 +24,8 @@ static unsigned char *g_fb_mem;
 static unsigned int g_line_width;  // 每行占多少个字节数
 static unsigned int g_pixel_width; // 每个像素占多少个字节数
 
+PT_Display_Opr fb_opr = NULL;
+
 static int fb_init(void)
 {
 	int fd = -1;
@@ -57,6 +59,11 @@ static int fb_init(void)
 		close(fd);
 		return -1;
 	}
+
+	// 更新显示器的信息
+	fb_opr->Xres       = g_FBVar.xres;
+	fb_opr->Yres       = g_FBVar.yres;
+	fb_opr->Bpp        = g_FBVar.bits_per_pixel;
 
 	// 每行占多少个字节数
 	g_line_width = g_FBVar.xres * g_FBVar.bits_per_pixel / 8;
@@ -163,7 +170,6 @@ static int fb_clean_screen(unsigned int back_color)
 
 int fb_register(void)
 {
-	PT_Display_Opr fb_opr = NULL;
 
 	fb_opr = (PT_Display_Opr)malloc(sizeof(T_Display_Opr));
 	if (fb_opr == NULL) {

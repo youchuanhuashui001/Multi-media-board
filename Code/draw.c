@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -9,9 +10,33 @@
 #include "encoding_manage.h"
 #include "font_manage.h"
 
+#define COLOR_BACKGROUND   0xE7DBB5
+#define COLOR_FOREGROUND   0x514438
 
-#define COLOR_BACKGROUND   0xE7DBB5  /* ·º»ÆµÄÖ½ */
-#define COLOR_FOREGROUND   0x514438  /* ºÖÉ«×ÖÌå */
+typedef struct page_desc {
+	int page;
+	unsigned char *lcd_first_post_at_file;
+	unsigned char *lcd_next_page_first_pos_at_file;
+	struct page_desc *pt_pre_page;
+	struct page_desc *pt_next_page;
+} t_page_desc, *pt_page_desc;
+
+static int g_iFdTextFile; // 小说文件句柄
+static unsigned char *g_pucTextFileMem;  // 小说文件内存映射起点
+static unsigned char *g_pucTextFileMemEnd; // 小说文件内存映射的结尾
+static PT_EncodingOpr g_ptEncodingOprForFile; // 用于将解码小说文件
+
+static PT_Display_Opr g_ptDispOpr; // 用于将解码后的 Unicode 渲染到 lcd
+
+// TODO: delete
+unsigned char *g_pucLcdFirstPosAtFile;
+//static unsigned char *g_pucLcdFirstPosAtFile; // 文件第一个字符的位置
+static unsigned char *g_pucLcdNextPosAtFile; // 文件中的下一页的第一个字符的位置
+
+static int g_dwFontSize; // 字体大小
+
+static pt_page_desc g_pt_pages   = NULL; // 记录所有的页
+static pt_page_desc g_pt_cur_page = NULL; // 记录当前的页
 
 
 int draw_point(unsigned int color)
@@ -38,22 +63,6 @@ int draw_point(unsigned int color)
 		}
 	}
 }
-
-static int g_iFdTextFile;
-static unsigned char *g_pucTextFileMem;
-static unsigned char *g_pucTextFileMemEnd;
-static PT_EncodingOpr g_ptEncodingOprForFile;
-
-static PT_Display_Opr g_ptDispOpr;
-
-unsigned char *g_pucLcdFirstPosAtFile;
-//static unsigned char *g_pucLcdFirstPosAtFile;
-static unsigned char *g_pucLcdNextPosAtFile;
-
-static int g_dwFontSize;
-
-//static PT_PageDesc g_ptPages   = NULL;
-//static PT_PageDesc g_ptCurPage = NULL;
 
 
 int OpenTextFile(char *pcFileName)
@@ -184,6 +193,52 @@ int IncLcdY(int iY)
 		return 0;
 }
 
+int RelocateFontPos(PT_FontBitMap ptFontBitMap)
+{
+	int iLcdY;
+	int iDeltaX;
+	int iDeltaY;
+
+	if (ptFontBitMap->iYMax > g_ptDispOpr->Yres)
+	{
+		/* Y over the range */
+		return -1;
+	}
+
+	/* X 越界，换行 */
+	if (ptFontBitMap->iXMax > g_ptDispOpr->Xres)
+	{
+		/* Y++ */
+		iLcdY = IncLcdY(ptFontBitMap->iCurOriginY);
+		if (0 == iLcdY)
+		{
+			/* screen is full */
+			return -1;
+		}
+		else
+		{
+			/* update bitmap */
+			iDeltaX = 0 - ptFontBitMap->iCurOriginX;
+			iDeltaY = iLcdY - ptFontBitMap->iCurOriginY;
+
+			ptFontBitMap->iCurOriginX  += iDeltaX;
+			ptFontBitMap->iCurOriginY  += iDeltaY;
+
+			ptFontBitMap->iNextOriginX += iDeltaX;
+			ptFontBitMap->iNextOriginY += iDeltaY;
+
+			ptFontBitMap->iXLeft += iDeltaX;
+			ptFontBitMap->iXMax  += iDeltaX;
+
+			ptFontBitMap->iYTop  += iDeltaY;
+			ptFontBitMap->iYMax  += iDeltaY;;
+			return 0;
+		}
+	}
+
+	return 0;
+}
+
 int ShowOneFont(PT_FontBitMap ptFontBitMap)
 {
 	int x;
@@ -247,7 +302,7 @@ int ShowOnePage(unsigned char *pucTextFileMemCurPos)
 	unsigned int dwCode;
 	PT_FontOpr ptFontOpr;
 	T_FontBitMap tFontBitMap;
-	
+
 	int bHasNotClrSceen = 1;
 	int bHasGetCode = 0;
 
@@ -255,7 +310,7 @@ int ShowOnePage(unsigned char *pucTextFileMemCurPos)
 	tFontBitMap.iCurOriginY = g_dwFontSize;
 	pucBufStart = pucTextFileMemCurPos;
 
-	
+
 	while (1)
 	{
 		iLen = g_ptEncodingOprForFile->GetCodeFrmBuf(pucBufStart, g_pucTextFileMemEnd, &dwCode);
@@ -273,7 +328,7 @@ int ShowOnePage(unsigned char *pucTextFileMemCurPos)
 		}
 
 		bHasGetCode = 1;
-		
+
 		pucBufStart += iLen;
 
 		/* ÓÐÐ©ÎÄ±¾, \n\rÁ½¸öÒ»Æð²Å±íÊ¾»Ø³µ»»ÐÐ
@@ -282,13 +337,13 @@ int ShowOnePage(unsigned char *pucTextFileMemCurPos)
 		if (dwCode == '\n')
 		{
 			g_pucLcdNextPosAtFile = pucBufStart;
-			
-			/* »Ø³µ»»ÐÐ */
+
+			/* 更新一行 */
 			tFontBitMap.iCurOriginX = 0;
 			tFontBitMap.iCurOriginY = IncLcdY(tFontBitMap.iCurOriginY);
 			if (0 == tFontBitMap.iCurOriginY)
 			{
-				/* ÏÔÊ¾Íêµ±Ç°Ò»ÆÁÁË */
+				/* 回到开头了，也就是说一页显示完了 */
 				return 0;
 			}
 			else
@@ -306,23 +361,18 @@ int ShowOnePage(unsigned char *pucTextFileMemCurPos)
 			dwCode = ' ';
 		}
 
-		printf("dwCode = 0x%x\n", dwCode);
-
 		ptFontOpr = g_ptEncodingOprForFile->ptFontOprSupportedHead;
 		while (ptFontOpr)
 		{
-			printf("%s %s %d\n", __FILE__, __FUNCTION__, __LINE__);
 			iError = ptFontOpr->GetFontBitmap(dwCode, &tFontBitMap);
-			printf("%s %s %d, ptFontOpr->name = %s, %d\n", __FILE__, __FUNCTION__, __LINE__, ptFontOpr->name, iError);
 			if (0 == iError)
 			{
-				printf("%s %s %d\n", __FILE__, __FUNCTION__, __LINE__);
-//				if (RelocateFontPos(&tFontBitMap))
-//				{
-//					/* Ê£ÏÂµÄLCD¿Õ¼ä²»ÄÜÂú×ãÏÔÊ¾Õâ¸ö×Ö·û */
-//					return 0;
-//				}
-				printf("%s %s %d\n", __FILE__, __FUNCTION__, __LINE__);
+				// 重定位，防止 x、y 越界
+				if (RelocateFontPos(&tFontBitMap))
+				{
+					/* Ê£ÏÂµÄLCD¿Õ¼ä²»ÄÜÂú×ãÏÔÊ¾Õâ¸ö×Ö·û */
+					return 0;
+				}
 
 				if (bHasNotClrSceen)
 				{
@@ -330,7 +380,6 @@ int ShowOnePage(unsigned char *pucTextFileMemCurPos)
 					g_ptDispOpr->Clean_Screen(COLOR_BACKGROUND);
 					bHasNotClrSceen = 0;
 				}
-				printf("%s %s %d\n", __FILE__, __FUNCTION__, __LINE__);
 				/* ÏÔÊ¾Ò»¸ö×Ö·û */
 				if (ShowOneFont(&tFontBitMap))
 				{
@@ -374,7 +423,7 @@ int test_show_one_font(void)
 
 	int test = 0;
 
-	for (test = 0; test < 1; i++) {
+	for (test = 0; test < 10; test++) {
 		len = g_ptEncodingOprForFile->GetCodeFrmBuf(pucBufStart, g_pucTextFileMemEnd, &code);
 		printf("code:0x%x\n", code);
 		pucBufStart += len;
@@ -445,3 +494,81 @@ int test_show_one_font(void)
 	}
 
 }
+
+static void record_page(pt_page_desc new_page)
+{
+	pt_page_desc page;
+
+	if (!g_pt_pages) {
+		g_pt_pages = new_page;
+	} else {
+		page = g_pt_pages;
+		while (page->pt_next_page) {
+			page = page->pt_next_page;
+		}
+		page->pt_next_page = new_page;
+		new_page->pt_pre_page = page;
+	}
+}
+
+int show_next_page(void)
+{
+	int ret;
+	pt_page_desc page;
+	unsigned char *text_file_mem_cur_postion;
+
+	// non_first_page
+	if (g_pt_cur_page) {
+		text_file_mem_cur_postion = g_pt_cur_page->lcd_next_page_first_pos_at_file;
+	// first_page
+	} else {
+		text_file_mem_cur_postion = g_pucLcdFirstPosAtFile;
+	}
+	ret = ShowOnePage(text_file_mem_cur_postion);
+	if (ret == 0) {
+		// 当前页面显示完成，将 cur_page 指向下一页，下次调用时就会直接显示下一页了
+		if (g_pt_cur_page && g_pt_cur_page->pt_next_page) {
+			g_pt_cur_page = g_pt_cur_page->pt_next_page;
+			return 0;
+		}
+
+		// 对于第一次，需要先申请空间记录 cur_page
+		page = (pt_page_desc)malloc(sizeof(t_page_desc));
+		if (page) {
+			// 打开文件的时候会更新此地址
+			page->lcd_first_post_at_file          = text_file_mem_cur_postion;
+			// 画完一页的时候会更新此地址
+			page->lcd_next_page_first_pos_at_file = g_pucLcdNextPosAtFile;
+			page->pt_pre_page = NULL;
+			page->pt_next_page = NULL;
+			g_pt_cur_page = page;
+			// 将申请的 page 加入到链表中，后面可以通过 pre/next 找到
+			record_page(page);
+		} else {
+			printf("malloc cur page failed.\n");
+			return -1;
+		}
+	}
+
+	return ret;
+}
+
+int show_pre_page(void)
+{
+
+	int ret;
+
+	// 当前 page 还没有，或者上一页是空的
+	if (!g_pt_cur_page || !g_pt_cur_page->pt_pre_page) {
+		return -1;
+	}
+
+	// 显示上一页
+	ret = ShowOnePage(g_pt_cur_page->pt_pre_page->lcd_first_post_at_file);
+	if (ret == 0) {
+		// 更新当前页为上一页
+		g_pt_cur_page = g_pt_cur_page->pt_pre_page;
+	}
+	return ret;
+}
+
