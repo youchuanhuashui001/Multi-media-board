@@ -53,6 +53,41 @@ arm-buildroot-linux-gnueabihf-gcc -o show_line show_line.c \
 -lfreetype -lbrotlidec -lbrotlicommon
 ```
 
+## tslib
+
+- 编译 tslib
+
+```shell
+mkdir tmp
+./configure --host=arm-buildroot-linux-gnueabihf --prefix=$PWD/tmp
+
+make -j8
+make install
+
+cp include/* -rf /home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin/../lib/gcc/arm-buildroot-linux-gnueabihf/7.5.0/include 
+cp lib/* -rfd /home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin/../lib/gcc/arm-buildroot-linux-gnueabihf/7.5.0/../../../../arm-buildroot-linux-gnueabihf/lib
+```
+
+- 开发板执行`tslib`自带测试程序
+
+```shell
+export TSLIB_CONSOLEDEVICE=none
+export TSLIB_FBDEVICE=/dev/fb0
+export TSLIB_TSDEVICE=/dev/input/event1
+export TSLIB_CONFFILE=/etc/ts.conf
+export TSLIB_PLUGINDIR=/usr/lib/ts
+
+ts_print
+```
+
+- 交叉编译测试程序
+
+```shell
+arm-buildroot-linux-gnueabihf-gcc -I /home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin/../lib/gcc/arm-buildroot-linux-gnueabihf/7.5.0/include -L /home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin/../lib/gcc/arm-buildroot-linux-gnueabihf/7.5.0/../../../../arm-buildroot-linux-gnueabihf/lib -lts  -o mt_cal_distance mt_cal_distance.c 
+```
+
+
+
 # 需求设计
 
 ## 电子阅读器

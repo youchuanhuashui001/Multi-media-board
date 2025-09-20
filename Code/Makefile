@@ -7,7 +7,7 @@ LD := $(CROSS_COMPILE)ld
 CFLAGS := -Ihome/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/include
 CFLAGS += -I./
 CFLAGS += -L/home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/lib
-LDFLAGS := -lfreetype -lbrotlidec -lbrotlicommon
+LDFLAGS := -lfreetype -lbrotlidec -lbrotlicommon -lts
 
 # 2. 推导变量
 OBJS := main.o \
