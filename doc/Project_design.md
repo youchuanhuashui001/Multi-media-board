@@ -86,6 +86,151 @@ ts_print
 arm-buildroot-linux-gnueabihf-gcc -I /home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin/../lib/gcc/arm-buildroot-linux-gnueabihf/7.5.0/include -L /home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin/../lib/gcc/arm-buildroot-linux-gnueabihf/7.5.0/../../../../arm-buildroot-linux-gnueabihf/lib -lts  -o mt_cal_distance mt_cal_distance.c 
 ```
 
+## mplayer
+
+### alsa-lib
+```shell
+cd /usr/share/
+sudo mkdir arm-alsa
+
+./configure --host=arm-buildroot-linux-gnueabihf --prefix=/home/tanxzh/tools/lib/alsa-lib --with-configdir=/usr/share/arm-alsa
+
+make
+sudo make install
+```
+- 这时会出现编译失败的情况：
+![[Pasted image 20250921164920.png]]
+- 按照正点原子教程继续以下操作：
+```shell
+sudo -s  //切换到 root 用户
+export ARCH=arm
+export CROSS_COMPILE=arm-buildroot-linux-gnueabihf-
+export PATH=$PATH:/home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin
+
+cd 到刚刚编译的路径
+make install
+
+su tanxzh
+```
+
+### alsa-utils
+
+### zlib
+```shell
+CC=arm-buildroot-linux-gnueabihf-gcc
+LD=arm-buildroot-linux-gnueabihf-ld
+AD=arm-buildroot-linux-gnueabihf-as ./configure --prefix=/home/tanxzh/tools/lib/zlib/
+
+make
+make install
+```
+
+### mplayer
+```shell
+./configure --cc=arm-buildroot-linux-gnueabihf-gcc --host-cc=gcc --target=arm-buildroot-linux-gnueabihf --disable-ossaudio --enable-alsa --prefix=/home/tanxzh/tools/lib/MPlayer/ --extra-cflags="-I /home/tanxzh/tools/lib/zlib/include -I /home/tanxzh/tools/lib/alsa-lib/include" \
+--extra-ldflags="-L/home/tanxzh/tools/zlib/lib -Iz -L/home/tanxzh/tools/alsa-lib/lib -lasound" --enable-fbdev --disable-mencoder
+make -j8
+```
+- 修改`config.mak` 文件中 `INSTALLSTRIP=-s`为 `INSTALLSTRIP=`
+- 继续安装：`make install`
+- 拷贝 `mplayer` 到开发板，直接 `./mplayer`
+
+
+#### 开发板直接执行 `./mplayer` 缺少库 libz.so.1
+- 查看开发板 `/usr/lib` 目录下的库，发现是 64 位的，并且主机上的库也是 64 位的
+```
+[root@100ask:/tmp/module/mplayer]# ./mplayer 
+./mplayer: error while loading shared libraries: libz.so.1: wrong ELF class: ELFCLASS64
+```
+![[Pasted image 20250921171653.png]]
+
+- 之前配置 zlib 的时候，没有加 `\`，导致使用了主机的编译工具链，重新加上之后再编译一遍 zlib，并拷贝库到开发板之后可以正常运行了
+```shell
+CC=arm-buildroot-linux-gnueabihf-gcc \
+LD=arm-buildroot-linux-gnueabihf-ld \
+AD=arm-buildroot-linux-gnueabihf-as ./configure --prefix=/home/tanxzh/tools/lib/zlib/
+```
+
+
+### 使用 mplayer 不能播放，使用 ffmpeg 可以播放
+
+#### 使用 mplayer 不能正常播放，不知道为什么必须要关掉声音
+```shell
+./mplayer xxx.mp4 or xxx.avi
+# 可以播放，但会闪屏
+./mplayer -vo fbdev -framedrop -nosound -lavdopts lowres=1 file_example_AVI_640_800kB.avi  
+
+# 可以播放
+ ./mplayer -fs  -nosound file_example_AVI_640_800kB.avi
+ 
+ # 可以播放
+ ./mplayer -fs -afm ffmpeg -ac ffmpeg -ao -f^Cmat s16le file_example_AVI_640_800kB.avi
+```
+
+
+- 单独使用 mplayer 播放音频也有问题，会一直卡住，应该就是这个导致的
+```shell
+[root@100ask:/tmp/module/mplayer]# ./mplayer ../audio/file_example_WAV_2MG.wav 
+MPlayer 1.4-7.5.0 (C) 2000-2019 MPlayer Team
+
+Playing ../audio/file_example_WAV_2MG.wav.
+libavformat version 58.27.102 (internal)
+Audio only file format detected.
+Load subtitles in ../audio/
+==========================================================================
+Opening audio decoder: [pcm] Uncompressed PCM audio decoder
+AUDIO: 44100 Hz, 2 ch, s16le, 1411.2 kbit/100.00% (ratio: 176400->176400)
+Selected audio codec: [pcm] afm: pcm (Uncompressed PCM)
+==========================================================================
+AO: [alsa] 44100Hz 2ch s16le (2 bytes per sample)
+Video: no video
+Starting playback...
+A:   0.0 (unknown) of 11.0 (11.0) ??,?% $<50>
+
+
+MPlayer interrupted by signal 2 in module: play_audio
+ $<50>
+Exiting... (Quit)
+```
+
+#### 使用 ffmpeg 不能正常播放：`ffmpeg xxx.avi` 失败
+- 切换到下面的命令后正常了
+```
+[root@100ask:/tmp/module/mplayer]# ffmpeg -i file_example_AVI_640_800kB.avi -pix_fmt bgra -f fbdev /dev/fb0
+ffmpeg version N-108120-g37a503ac87 Copyright (c) 2000-2022 the FFmpeg developers
+  built with gcc 7.5.0 (Buildroot 2020.02-gee85cab)
+  configuration: --cross-prefix=arm-buildroot-linux-gnueabihf- --enable-cross-compile --target-os=linux --cc=arm-buildroot-linux-gnueabihf-gcc --arch=arm --prefix=/home/tanxzh/tanxzh/linux/ffmpeg/ffmpeg/ffmpeg/_install --enable-shared --disable-st
+atic --enable-gpl --enable-nonfree --disable-ffplay --enable-swscale --enable-pthreads --disable-armv5te --disable-armv6 --disable-armv6t2 --disable-x86asm --disable-stripping --enable-libx264 --extra-cflags=-I/home/tanxzh/tanxzh/linux/ffmpeg/x264
+-master/_install/include --extra-ldflags=-L/home/tanxzh/tanxzh/linux/ffmpeg/x264-master/_install/lib --extra-libs=-ldl --pkg-config='pkg-config --static'
+  libavutil      57. 36.101 / 57. 36.101
+  libavcodec     59. 43.100 / 59. 43.100
+  libavformat    59. 31.100 / 59. 31.100
+  libavdevice    59.  8.101 / 59.  8.101
+  libavfilter     8. 48.100 /  8. 48.100
+  libswscale      6.  8.112 /  6.  8.112
+  libswresample   4.  9.100 /  4.  9.100
+  libpostproc    56.  7.100 / 56.  7.100
+Input #0, avi, from 'file_example_AVI_640_800kB.avi':
+  Metadata:
+    software        : Lavf57.19.100
+  Duration: 00:00:30.61, start: 0.000000, bitrate: 216 kb/s
+  Stream #0:0: Video: h264 (High) (H264 / 0x34363248), yuv420p(progressive), 640x360 [SAR 1:1 DAR 16:9], 60 kb/s, 30 fps, 30 tbr, 30 tbn
+  Stream #0:1: Audio: aac (LC) ([255][0][0][0] / 0x00FF), 48000 Hz, stereo, fltp, 139 kb/s
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (native) -> rawvideo (native))
+Press [q] to stop, [?] for help
+[swscaler @ 0x1263a70] No accelerated colorspace conversion found from yuv420p to bgra.
+Output #0, fbdev, to '/dev/fb0':
+  Metadata:
+    software        : Lavf57.19.100
+    encoder         : Lavf59.31.100
+  Stream #0:0: Video: rawvideo (BGRA / 0x41524742), bgra(pc, gbr/unknown/unknown, progressive), 640x360 [SAR 1:1 DAR 16:9], q=2-31, 221184 kb/s, 30 fps, 30 tbn
+    Metadata:
+      encoder         : Lavc59.43.100 rawvideo
+frame=  901 fps= 50 q=-0.0 Lsize=N/A time=00:00:30.06 bitrate=N/A speed=1.66x     speed=2.29x    
+video:810900kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: unknown
+```
+
 
 
 # 需求设计
@@ -95,6 +240,10 @@ arm-buildroot-linux-gnueabihf-gcc -I /home/tanxzh/project/100ask/100ask_imx6ull_
 电子阅读器要求包括：
 - 触摸屏：需要通过 input 子系统获取到触碰事件
 - LCD 显示：需要显示文字
+
+## 音乐播放器 + 视频播放器
+
+使用 QT 或 LVGL 框架，实现音乐播放器 + 视频播放器
 
 
 

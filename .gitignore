@@ -16,4 +16,6 @@ Code/compile_commands.json
 # 忽略第三方库，例如 brotli
 Code/module/lcd/lib/brotli/
 
+.obsidian
+
 # ===================================================
