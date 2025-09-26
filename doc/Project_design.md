@@ -233,6 +233,14 @@ video:810900kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxin
 
 
 
+## 集成 lvgl
+
+- 下载仓库： https://github.com/lvgl/lv_port_linux
+- 参考 `README.md`
+- 触摸屏需要在开发板中配置环境变量：`export LV_LINUX_EVDEV_POINTER_DEVICE=/dev/input/event1`
+
+
+
 # 需求设计
 
 ## 电子阅读器
