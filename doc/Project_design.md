@@ -86,9 +86,22 @@ ts_print
 arm-buildroot-linux-gnueabihf-gcc -I /home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin/../lib/gcc/arm-buildroot-linux-gnueabihf/7.5.0/include -L /home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin/../lib/gcc/arm-buildroot-linux-gnueabihf/7.5.0/../../../../arm-buildroot-linux-gnueabihf/lib -lts  -o mt_cal_distance mt_cal_distance.c 
 ```
 
-## mplayer
 
-### alsa-lib
+# 音视频
+## 音频
+- 录音：`arecord -v --format=cd --device=plughw:0,1 test.wav`
+	- 需要耳机来录音
+- mic 接口录音：还没测试
+- 播放：`aplay -v --format=cd --device=plughw:0,0 music_zhou.wav`
+- 测试：`speaker-test -t wav -c 2 -D plughw:0,0`
+	- 0,0 表示声卡0，0或1是左声道或右声道
+- 修改音量：`alsamixer` 后按下 F3 然后切换到对应的位置来设置音量大小
+
+
+## 视频
+### mplayer
+
+#### alsa-lib
 ```shell
 cd /usr/share/
 sudo mkdir arm-alsa
@@ -113,9 +126,9 @@ make install
 su tanxzh
 ```
 
-### alsa-utils
+#### alsa-utils
 
-### zlib
+#### zlib
 ```shell
 CC=arm-buildroot-linux-gnueabihf-gcc
 LD=arm-buildroot-linux-gnueabihf-ld
@@ -125,7 +138,7 @@ make
 make install
 ```
 
-### mplayer
+#### mplayer
 ```shell
 ./configure --cc=arm-buildroot-linux-gnueabihf-gcc --host-cc=gcc --target=arm-buildroot-linux-gnueabihf --disable-ossaudio --enable-alsa --prefix=/home/tanxzh/tools/lib/MPlayer/ --extra-cflags="-I /home/tanxzh/tools/lib/zlib/include -I /home/tanxzh/tools/lib/alsa-lib/include" \
 --extra-ldflags="-L/home/tanxzh/tools/zlib/lib -Iz -L/home/tanxzh/tools/alsa-lib/lib -lasound" --enable-fbdev --disable-mencoder
@@ -136,7 +149,7 @@ make -j8
 - 拷贝 `mplayer` 到开发板，直接 `./mplayer`
 
 
-#### 开发板直接执行 `./mplayer` 缺少库 libz.so.1
+##### 开发板直接执行 `./mplayer` 缺少库 libz.so.1
 - 查看开发板 `/usr/lib` 目录下的库，发现是 64 位的，并且主机上的库也是 64 位的
 ```
 [root@100ask:/tmp/module/mplayer]# ./mplayer 
@@ -152,9 +165,9 @@ AD=arm-buildroot-linux-gnueabihf-as ./configure --prefix=/home/tanxzh/tools/lib/
 ```
 
 
-### 使用 mplayer 不能播放，使用 ffmpeg 可以播放
+#### 使用 mplayer 不能播放，使用 ffmpeg 可以播放
 
-#### 使用 mplayer 不能正常播放，不知道为什么必须要关掉声音
+##### 使用 mplayer 不能正常播放，不知道为什么必须要关掉声音
 ```shell
 ./mplayer xxx.mp4 or xxx.avi
 # 可以播放，但会闪屏
@@ -165,6 +178,8 @@ AD=arm-buildroot-linux-gnueabihf-as ./configure --prefix=/home/tanxzh/tools/lib/
  
  # 可以播放
  ./mplayer -fs -afm ffmpeg -ac ffmpeg -ao -f^Cmat s16le file_example_AVI_640_800kB.avi
+ 
+ mplayer -fs -afm ffmpeg -ac ffmpeg -ao alsa -format s16le file_example_AVI_640_800kB.avi
 ```
 
 
@@ -193,7 +208,7 @@ MPlayer interrupted by signal 2 in module: play_audio
 Exiting... (Quit)
 ```
 
-#### 使用 ffmpeg 不能正常播放：`ffmpeg xxx.avi` 失败
+##### 使用 ffmpeg 不能正常播放：`ffmpeg xxx.avi` 失败
 - 切换到下面的命令后正常了
 ```
 [root@100ask:/tmp/module/mplayer]# ffmpeg -i file_example_AVI_640_800kB.avi -pix_fmt bgra -f fbdev /dev/fb0
@@ -233,11 +248,30 @@ video:810900kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxin
 
 
 
-## 集成 lvgl
+## 命令
+- mplayer
+```
+# 有画面，有声音
+./mplayer -ao alsa -zoom -x 1024 -y 600 trailer.mp4
+```
+
+- ffmpeg
+```
+# 有画面，有声音
+ffmpeg -i trailer.mp4 -vf "scale=1024:600" -pix_fmt bgra -f fbdev /dev/fb0 -f alsa -ac 2 -ar 44100 -sample_fmt s16 hw:0,0
+```
+
+
+# lvgl
 
 - 下载仓库： https://github.com/lvgl/lv_port_linux
 - 参考 `README.md`
 - 触摸屏需要在开发板中配置环境变量：`export LV_LINUX_EVDEV_POINTER_DEVICE=/dev/input/event1`
+
+
+
+
+
 
 
 
