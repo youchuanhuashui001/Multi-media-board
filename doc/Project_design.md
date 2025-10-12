@@ -269,7 +269,8 @@ ffmpeg -i trailer.mp4 -vf "scale=1024:600" -pix_fmt bgra -f fbdev /dev/fb0 -f al
 - 触摸屏需要在开发板中配置环境变量：`export LV_LINUX_EVDEV_POINTER_DEVICE=/dev/input/event1`
 
 
-
+## 图片转换工具，可以将各种格式的图片转换成 C 语言数组
+- https://lvgl.io/tools/imageconverter
 
 
 

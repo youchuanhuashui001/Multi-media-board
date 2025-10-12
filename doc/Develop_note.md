@@ -69,3 +69,10 @@
 - 学习 lvgl 的组件，可以参考 lvgl/examples 目录下的代码
 - 播放音视频等等都需要使用 api 接口来实现
 	- alsa-api，ffmpeg-api
+
+
+
+
+## 2025-10-12
+今日主要工作内容：
+- 学习 lvgl 的组件，参考 https://gitee.com/weidongshan/lvgl_100ask_course_v9/blob/master/part1/02_codes/lv_sim_codeblocks_win/lv_100ask_lesson_demos/src/lesson_3_24_1/lesson_3_24_1.c  https://docs.lvgl.io/master/details/main-modules/fs.html#use-drives-for-images
