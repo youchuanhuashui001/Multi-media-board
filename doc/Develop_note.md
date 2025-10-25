@@ -76,3 +76,9 @@
 ## 2025-10-12
 今日主要工作内容：
 - 学习 lvgl 的组件，参考 https://gitee.com/weidongshan/lvgl_100ask_course_v9/blob/master/part1/02_codes/lv_sim_codeblocks_win/lv_100ask_lesson_demos/src/lesson_3_24_1/lesson_3_24_1.c  https://docs.lvgl.io/master/details/main-modules/fs.html#use-drives-for-images
+
+
+## 2025-10-25
+今日主要工作内容：
+- 单独起一个线程来播放音频，使用管道文件来控制 mplayer 播放音频，实现音视频播放和 lvgl 显示同时进行，参考：https://blog.csdn.net/hry_7419/article/details/151196795
+- lvgl 的 music_demo 在 click 的 callback 中添加播放音频的代码，能够实现点击播放音频功能

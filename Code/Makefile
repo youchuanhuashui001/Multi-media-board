@@ -23,7 +23,7 @@ WARNINGS        := -Wall -Wshadow -Wundef -Wextra -Wno-unused-function -Wno-erro
 
 
 CFLAGS          ?= -O3 -g0 -I$(LVGL_DIR)/ $(WARNINGS)
-LDFLAGS         ?= -lm
+LDFLAGS         ?= -lm -pthread
 
 CFLAGS          += -I./src/
 CFLAGS          += -I./lvgl/
