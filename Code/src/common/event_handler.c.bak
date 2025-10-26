@@ -1,0 +1,16 @@
+#include "event_handler.h"
+
+
+// 事件处理回调
+void event_handler(lv_event_t *e) {
+    app_event_t event = lv_event_get_user_data(e);
+    switch(event) {
+        case EVENT_VIEW_SWITCH:
+            // 处理视图切换
+            break;
+        case EVENT_MUSIC_PLAY:
+            // 处理音乐播放
+            break;
+        // ...其他事件处理
+    }
+}

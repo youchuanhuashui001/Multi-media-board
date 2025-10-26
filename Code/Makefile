@@ -14,19 +14,18 @@ LVGL_DIR        ?= .
 #                   -Wno-ignored-qualifiers -Wno-error=pedantic -Wno-sign-compare -Wno-error=missing-prototypes -Wdouble-promotion -Wclobbered -Wdeprecated -Wempty-body \
 #                   -Wshift-negative-value -Wstack-usage=2048 -Wno-unused-value -std=gnu99
 
-WARNINGS        := -Wall -Wshadow -Wundef -Wextra -Wno-unused-function -Wno-error=strict-prototypes -Wpointer-arith \
-                   -fno-strict-aliasing -Wno-error=cpp -Wuninitialized -Wmaybe-uninitialized -Wno-unused-parameter -Wno-missing-field-initializers -Wtype-limits \
+WARNINGS        := -Wall -Wundef -Wextra -Wno-unused-function -Wno-error=strict-prototypes -Wpointer-arith \
+                   -fno-strict-aliasing -Wno-error=cpp -Wuninitialized -Wmaybe-uninitialized -Wno-unused-parameter -Wno-missing-field-initializers \
                    -Wsizeof-pointer-memaccess -Wno-format-nonliteral -Wno-cast-qual -Wunreachable-code -Wno-switch-default -Wreturn-type -Wmultichar -Wformat-security \
-                   -Wno-ignored-qualifiers -Wno-error=pedantic -Wno-sign-compare -Wno-error=missing-prototypes -Wdouble-promotion -Wclobbered -Wdeprecated -Wempty-body \
-                   -Wshift-negative-value -Wstack-usage=2048 -Wno-unused-value
-
-
+                   -Wno-ignored-qualifiers -Wno-error=pedantic -Wno-sign-compare -Wno-error=missing-prototypes -Wclobbered -Wdeprecated -Wempty-body \
+                   -Wshift-negative-value -Wno-unused-value
 
 CFLAGS          ?= -O3 -g0 -I$(LVGL_DIR)/ $(WARNINGS)
 LDFLAGS         ?= -lm -pthread
 
 CFLAGS          += -I./src/
 CFLAGS          += -I./lvgl/
+CFLAGS          += -I./src/include -I./src/include/app/ -I./src/include/common/
 
 BIN             = main
 BUILD_DIR       = ./build

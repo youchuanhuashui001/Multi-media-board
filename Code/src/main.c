@@ -17,22 +17,22 @@
  * Author: EDGEMTech Ltd, Erik Tagirov (erik.tagirov@edgemtech.ch)
  *
  ******************************************************************/
-#include <unistd.h>
-#include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "common.h"
 
-#include <sys/types.h>
-#include <sys/stat.h>
-
-
-#include "lvgl/lvgl.h"
-#include "lvgl/demos/lv_demos.h"
-
-#include "src/lib/driver_backends.h"
-#include "src/lib/simulator_util.h"
-#include "src/lib/simulator_settings.h"
+//#include <unistd.h>
+//#include <pthread.h>
+//
+//
+//#include <sys/types.h>
+//#include <sys/stat.h>
+//
+//
+//#include "lvgl/lvgl.h"
+//#include "lvgl/demos/lv_demos.h"
+//
+//#include "src/lib/driver_backends.h"
+//#include "src/lib/simulator_util.h"
+//#include "src/lib/simulator_settings.h"
 
 /* Internal functions */
 static void configure_simulator(int argc, char **argv);
@@ -118,32 +118,20 @@ int main(int argc, char **argv)
     }
 #endif
 
-    lv_obj_t * label1 = lv_label_create(lv_screen_active());
-    lv_label_set_long_mode(label1, LV_LABEL_LONG_MODE_WRAP);     /*Break the long lines*/
-    lv_label_set_recolor(label1, true);                      /*Enable re-coloring by commands in the text*/
-    lv_label_set_text(label1, "#0000ff Re-color# #ff00ff words# #ff0000 of a# label, align the lines to the center "
-                      "and wrap long text automatically.");
-    lv_obj_set_width(label1, 150);  /*Set smaller width to make the lines wrap*/
-    lv_obj_set_style_text_align(label1, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(label1, LV_ALIGN_CENTER, 0, -40);
+    view_manager_init();
 
-    lv_obj_t * label2 = lv_label_create(lv_screen_active());
-    lv_label_set_long_mode(label2, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);     /*Circular scroll*/
-    lv_obj_set_width(label2, 150);
-    lv_label_set_text(label2, "It is a circularly scrolling text. ");
-    lv_obj_align(label2, LV_ALIGN_CENTER, 0, 40);
+    view_manager_register(&main_view);
+
 
     // 注意这里的管道文件路径要改为你创建的管道路径，也就说在这之间要先用mkfifo创建一个管道出来
 //    sprintf(command_name,"mplayer -slave -quiet -ao alsa:device=hw=0,0 -input file=/mywork/lvgl_3568/lvgl_iPads/pipe /mywork/lvgl_3568/lvgl_iPads/%s",music_name);
 
-    mkfifo("./pipe", 0777);
 //    pthread_t tid1, tid2;
 //    pthread_create(&tid1, NULL, music_play_task, NULL); // 创建播放线程 
 //    pthread_create(&tid2, NULL, print_test, NULL); // 创建播放线程 
     /*Create a Demo*/
 //    lv_demo_widgets();
 //    lv_demo_widgets_start_slideshow();
-    lv_demo_music();
 //	system("aplay -v --format=cd --device=plughw:0,0 module/audio/music_zhou.wav");
 //    const char * lv_demo_music_get_title(uint32_t track_id);
 //    const char * lv_demo_music_get_artist(uint32_t track_id);

@@ -96,6 +96,8 @@ arm-buildroot-linux-gnueabihf-gcc -I /home/tanxzh/project/100ask/100ask_imx6ull_
 - 测试：`speaker-test -t wav -c 2 -D plughw:0,0`
 	- 0,0 表示声卡0，0或1是左声道或右声道
 - 修改音量：`alsamixer` 后按下 F3 然后切换到对应的位置来设置音量大小
+  - 修改后需要执行 `alsactl store` 来保存设置，否则重启后会丢失配置
+  - `alsactl -f /var/lib/alsa/asound.state store`
 
 
 ## 视频
@@ -268,11 +270,14 @@ ffmpeg -i trailer.mp4 -vf "scale=1024:600" -pix_fmt bgra -f fbdev /dev/fb0 -f al
 - 参考 `README.md`
 - 触摸屏需要在开发板中配置环境变量：`export LV_LINUX_EVDEV_POINTER_DEVICE=/dev/input/event1`
 
+## 图片
 
-## 图片转换工具，可以将各种格式的图片转换成 C 语言数组
+### 图片转换工具，可以将各种格式的图片转换成 C 语言数组
 - https://lvgl.io/tools/imageconverter
-
-
+### 图片缩放：将图片缩放到指定大小
+- https://www.iloveimg.com/zh-cn/resize-image#resize-options,pixels
+### 图片压缩：将图片进一步压缩，减少内存占用
+- https://compresspng.com/
 
 
 
