@@ -294,6 +294,9 @@ ffmpeg -i trailer.mp4 -vf "scale=1024:600" -pix_fmt bgra -f fbdev /dev/fb0 -f al
 使用 QT 或 LVGL 框架，实现音乐播放器 + 视频播放器
 
 
+# 空格转换为 tab
+`find . -name "*.c" -o -name "*.h" | xargs sed -i 's/^    /\t/g'`
+
 
 # 参考 100ask 设计
 

@@ -21,9 +21,16 @@
 #include "view_manager.h"
 
 #ifdef VIEW_DEBUG_ON
-    #define view_printf(fmt, args...)   printf("VIEW_DEBUG: " fmt, ## args)
+#define view_printf(fmt, args...)   printf("VIEW_DEBUG: " fmt, ## args)
 #else
-    #define view_printf(fmt, args...) do {} while (0)
+#define view_printf(fmt, args...) do {} while (0)
 #endif
+
+#ifdef MAIN_VIEW_DEBUG_ON
+#define main_view_printf(fmt, args...)   printf("MAIN_VIEW_DEBUG: " fmt, ## args)
+#else
+#define main_view_printf(fmt, args...) do {} while (0)
+#endif
+
 
 #endif

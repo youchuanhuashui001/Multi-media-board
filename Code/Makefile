@@ -33,7 +33,7 @@ BUILD_OBJ_DIR   = $(BUILD_DIR)/obj
 BUILD_BIN_DIR   = $(BUILD_DIR)/bin
 
 prefix          ?= /usr
-bindir          ?= $(prefix)/bin
+bindir          ?= /opt/nfs
 
 # Collect source files recursively
 CSRCS           := $(shell find src -type f -name '*.c')
@@ -71,14 +71,16 @@ $(BUILD_OBJ_DIR)/%.o: %.S lv_conf.h
 
 default: $(TARGET)
 	@mkdir -p $(dir $(BUILD_BIN_DIR)/)
-	$(CXX) -o $(BUILD_BIN_DIR)/$(BIN) $(TARGET) $(LDFLAGS)
+	@$(CXX) -o $(BUILD_BIN_DIR)/$(BIN) $(TARGET) $(LDFLAGS)
 
 clean:
 	rm -rf $(BUILD_DIR)
 
 install:
-	install -d $(DESTDIR)$(bindir)
-	install $(BUILD_BIN_DIR)/$(BIN) $(DESTDIR)$(bindir)
+	sudo cp $(BUILD_BIN_DIR)/$(BIN) $(bindir)/$(BIN)
+#install:
+#	install -d $(DESTDIR)$(bindir)
+#	install $(BUILD_BIN_DIR)/$(BIN) $(DESTDIR)$(bindir)
 
 uninstall:
 	$(RM) -r $(addprefix $(DESTDIR)$(bindir)/,$(BIN))

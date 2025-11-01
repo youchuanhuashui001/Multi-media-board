@@ -18,6 +18,7 @@
  *
  ******************************************************************/
 #include "common.h"
+#include "view_manager.h"
 
 //#include <unistd.h>
 //#include <pthread.h>
@@ -118,9 +119,19 @@ int main(int argc, char **argv)
     }
 #endif
 
+    // 关闭光标
+    system("echo -e \"\\033[?25l\" > /dev/tty1");
+    // 屏幕不再熄灭
+    system("echo -e  \"\\033[9;0]\"  > /dev/tty0");
+    // inputdev 环境变量
+    system("export LV_LINUX_EVDEV_POINTER_DEVICE=/dev/input/event1");
+
     view_manager_init();
 
+    // 谁最先注册，谁就最先显示
     view_manager_register(&main_view);
+    view_manager_register(&music_view);
+    view_manager_register(&book_view);
 
 
     // 注意这里的管道文件路径要改为你创建的管道路径，也就说在这之间要先用mkfifo创建一个管道出来
