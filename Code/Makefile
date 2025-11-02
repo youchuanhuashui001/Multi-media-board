@@ -8,13 +8,7 @@ CXX             = $(CROSS_COMPILE)g++
 LVGL_DIR_NAME   ?= lvgl
 LVGL_DIR        ?= .
 
-#WARNINGS        := -Wall -Wshadow -Wundef -Wmissing-prototypes -Wno-discarded-qualifiers -Wextra -Wno-unused-function -Wno-error=strict-prototypes -Wpointer-arith \
-#                   -fno-strict-aliasing -Wno-error=cpp -Wuninitialized -Wmaybe-uninitialized -Wno-unused-parameter -Wno-missing-field-initializers -Wtype-limits \
-#                   -Wsizeof-pointer-memaccess -Wno-format-nonliteral -Wno-cast-qual -Wunreachable-code -Wno-switch-default -Wreturn-type -Wmultichar -Wformat-security \
-#                   -Wno-ignored-qualifiers -Wno-error=pedantic -Wno-sign-compare -Wno-error=missing-prototypes -Wdouble-promotion -Wclobbered -Wdeprecated -Wempty-body \
-#                   -Wshift-negative-value -Wstack-usage=2048 -Wno-unused-value -std=gnu99
-
-WARNINGS        := -Wall -Wundef -Wextra -Wno-unused-function -Wno-error=strict-prototypes -Wpointer-arith \
+WARNINGS        := -Wall -Wextra -Wno-unused-function -Wno-error=strict-prototypes -Wpointer-arith \
                    -fno-strict-aliasing -Wno-error=cpp -Wuninitialized -Wmaybe-uninitialized -Wno-unused-parameter -Wno-missing-field-initializers \
                    -Wsizeof-pointer-memaccess -Wno-format-nonliteral -Wno-cast-qual -Wunreachable-code -Wno-switch-default -Wreturn-type -Wmultichar -Wformat-security \
                    -Wno-ignored-qualifiers -Wno-error=pedantic -Wno-sign-compare -Wno-error=missing-prototypes -Wclobbered -Wdeprecated -Wempty-body \
@@ -26,6 +20,12 @@ LDFLAGS         ?= -lm -pthread
 CFLAGS          += -I./src/
 CFLAGS          += -I./lvgl/
 CFLAGS          += -I./src/include -I./src/include/app/ -I./src/include/common/
+# freetype, tslib
+CFLAGS          += -I/home/tanxzh/tools/lib/freetype/include
+LDFLAGS         += -L/home/tanxzh/tools/lib/freetype/lib
+# brotli
+LDFLAGS          += -L/home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/lib
+LDFLAGS         += -lfreetype -lbrotlidec -lbrotlicommon -lts
 
 BIN             = main
 BUILD_DIR       = ./build

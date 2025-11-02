@@ -172,7 +172,6 @@ int view_manager_switch_to(const char *name)
 			// 为新视图添加手势检测
 		// 这里是为各个页面，添加的事件
 			if(strcmp(name, "main_view") != 0) {  // main_view 不需要手势返回
-		view_printf("g_view_manager.current_view=%p\n", g_view_manager.current_view);
 				lv_obj_add_event_cb(g_view_manager.current_view->screen,
 								  view_gesture_event_cb,
 								  LV_EVENT_ALL, NULL);
