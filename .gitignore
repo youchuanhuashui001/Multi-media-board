@@ -14,8 +14,9 @@ Code/.cache/
 Code/compile_commands.json
 
 # 忽略第三方库，例如 brotli
-Code/module/lcd/lib/brotli/
+Code/module/lcd/lib/freetype-2.13.3/
 Code/lvgl/
+
 
 .obsidian
 

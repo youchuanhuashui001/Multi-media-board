@@ -16,7 +16,7 @@
 #include <sys/mman.h>
 
 #define FONT_SIZE            24
-#define BOOK_FILE_PATH       "./resources/book/jianlai.txt"
+#define BOOK_FILE_PATH       "A:/tmp/resources/book/"
 #define PAGE_BUFFER          4096
 
 typedef struct {
@@ -30,9 +30,21 @@ typedef struct {
 	long current_pos;                 // 当前文件偏移量
 	long history_pos[1024];           // 位置历史记录, 用于后退
 	int history_top;                  // 历史记录的个数
+
+	char *books_name[256];        // 所有的书籍名称
+	int book_count;                   // 书籍数量
+
+	lv_obj_t *book_shelf;            // 书架容器
+
+	struct book_item {
+		lv_obj_t *btn;        // 书籍按钮
+		lv_obj_t *cover;      // 封面图片  w*h 200*240
+		lv_obj_t *title;      // 书籍名称
+	} *book_items;
 } book_ui_t;
 
 static book_ui_t g_book_ui;
+const char *current_book_name = NULL;    // 当前打开的书籍信息
 
 static int GetPreOneBits(unsigned char ucVal)
 {
@@ -222,6 +234,150 @@ static void book_view_event_cb(lv_event_t *e)
 	}
 }
 
+// 书籍按钮点击事件处理函数
+static void book_btn_event_handler(lv_event_t * e)
+{
+	lv_event_code_t code = lv_event_get_code(e);
+	lv_obj_t * btn = lv_event_get_target(e);
+
+	if(code == LV_EVENT_CLICKED) {
+		// 获取按钮的用户数据(书籍索引)
+		int book_index = (int)lv_obj_get_user_data(btn);
+		book_view_printf("Selected book: %s\n", g_book_ui.books_name[book_index]);
+
+		current_book_name = g_book_ui.books_name[book_index];
+
+		// 打开文件
+		char full_path[512];
+		snprintf(full_path, sizeof(full_path), "./resources/book/%s", current_book_name);
+		g_book_ui.fp = fopen(full_path, "r");
+		if (!g_book_ui.fp) {
+			book_view_printf("Cannot open file: %s\n", full_path);
+			return;
+		}
+
+		lv_obj_add_flag(g_book_ui.book_shelf, LV_OBJ_FLAG_HIDDEN);
+
+		g_book_ui.page_buffer = (char *)malloc(PAGE_BUFFER);
+		if (!g_book_ui.page_buffer) {
+			LV_LOG_ERROR("Failed to allocate page buffer");
+			fclose(g_book_ui.fp);
+			g_book_ui.fp = NULL;
+			return;
+		}
+
+		// 初始化阅读状态
+		g_book_ui.current_pos = 0;
+		g_book_ui.history_top = 0;
+		memset(g_book_ui.history_pos, 0, sizeof(g_book_ui.history_pos));
+
+		// 显示第一页
+		show_page(g_book_ui.current_pos);
+	}
+}
+
+int scan_dir_resources(const char *path)
+{
+	lv_fs_dir_t dir;
+	lv_fs_res_t res;
+	res = lv_fs_dir_open(&dir, BOOK_FILE_PATH);
+	if (res != LV_FS_RES_OK) {
+		LV_LOG_USER("open dir failed %d.\n", res);
+		return -1;
+	}
+
+	char fn[256];
+	while(1) {
+		res = lv_fs_dir_read(&dir, fn, sizeof(fn));
+		if(res != LV_FS_RES_OK) {
+			printf("read dir failed.\n");
+			break;
+		}
+
+		/* fn is empty if there are no more files to read. */
+		if(strlen(fn) == 0) {
+			break;
+		}
+
+		g_book_ui.books_name[g_book_ui.book_count++] = strdup(fn);
+		printf("%s\n", fn);
+	}
+
+	int i;
+	for (i = 0; i < g_book_ui.book_count; i++) {
+		printf("book %d: %s\n", i, g_book_ui.books_name[i]);
+	}
+
+	lv_fs_dir_close(&dir);
+
+	g_book_ui.book_items = malloc(sizeof(struct book_item) * g_book_ui.book_count);
+	if (!g_book_ui.book_items) {
+		printf("malloc book items failed.\n");
+		return -1;
+	}
+
+	g_book_ui.book_shelf = lv_obj_create(book_view.screen);
+	lv_obj_set_size(g_book_ui.book_shelf, lv_display_get_horizontal_resolution(NULL), lv_display_get_vertical_resolution(NULL));
+	// 移除屏幕的默认样式（边框、背景等）
+	lv_obj_set_style_border_width(g_book_ui.book_shelf, 0, 0);
+	lv_obj_set_style_bg_opa(g_book_ui.book_shelf, LV_OPA_0, 0);
+	lv_obj_set_style_pad_all(g_book_ui.book_shelf, 0, 0);
+	lv_obj_set_style_radius(g_book_ui.book_shelf, 0, 0);
+
+	lv_obj_set_style_bg_color(g_book_ui.book_shelf,
+	                         lv_color_make(0xE7, 0xDB, 0xB5),
+	                         LV_PART_MAIN);
+
+	// 创建书籍目录界面
+	for (i = 0; i < g_book_ui.book_count; i++) {
+		printf("Create book button: %s\n", g_book_ui.books_name[i]);
+
+		g_book_ui.book_items[i].btn = lv_btn_create(g_book_ui.book_shelf);
+		lv_obj_set_size(g_book_ui.book_items[i].btn, 200, 240);
+
+		// 设置按钮样式
+		lv_obj_set_style_bg_color(g_book_ui.book_items[i].btn, lv_color_hex(0xFFFFFF), 0);
+		lv_obj_set_style_bg_opa(g_book_ui.book_items[i].btn, LV_OPA_50, 0);
+		lv_obj_set_style_border_width(g_book_ui.book_items[i].btn, 2, 0);
+		lv_obj_set_style_border_color(g_book_ui.book_items[i].btn, lv_color_hex(0x808080), 0);
+		lv_obj_set_style_radius(g_book_ui.book_items[i].btn, 10, 0);
+
+		// 创建封面图片(如果有的话)
+		g_book_ui.book_items[i].cover = lv_image_create(g_book_ui.book_items[i].btn);
+		lv_image_set_src(g_book_ui.book_items[i].cover, "A:./resources/image/book/book.jpeg");
+		lv_obj_align(g_book_ui.book_items[i].cover, LV_ALIGN_CENTER, 0, 0);
+
+		// 创建书名标签
+		static lv_style_t style;
+		lv_style_init(&style);
+		lv_style_set_text_font(&style, g_book_ui.font);
+		lv_style_set_text_color(&style, lv_color_make(0x51, 0x44, 0x38));
+		lv_style_set_text_line_space(&style, 0);  // 设置行间距为0
+
+		g_book_ui.book_items[i].title = lv_label_create(g_book_ui.book_items[i].btn);
+		lv_obj_add_style(g_book_ui.book_items[i].title, &style, 0);
+		lv_label_set_text(g_book_ui.book_items[i].title, g_book_ui.books_name[i]);
+		lv_obj_align(g_book_ui.book_items[i].title, LV_ALIGN_BOTTOM_MID, 0, -10);
+
+		// 设置按钮位置
+		if (i < 5) {
+		    lv_obj_align(g_book_ui.book_items[i].btn, LV_ALIGN_TOP_LEFT, 10 + i*210, 20);
+		} else if (i < 10) {
+		    lv_obj_align(g_book_ui.book_items[i].btn, LV_ALIGN_TOP_LEFT, 10 + (i-5)*200, 280);
+		} else {
+			printf("more than 10 books not support yet.\n");
+		}
+
+		// 添加点击事件
+		lv_obj_add_flag(g_book_ui.book_items[i].btn, LV_OBJ_FLAG_CLICKABLE);
+		lv_obj_set_user_data(g_book_ui.book_items[i].btn, (void*)i);  // 保存书籍索引
+		lv_obj_add_event_cb(g_book_ui.book_items[i].btn, book_btn_event_handler, LV_EVENT_CLICKED, NULL);
+	}
+
+	return 0;
+
+}
+
 // 主界面初始化
 static void book_view_init(void)
 {
@@ -241,6 +397,7 @@ static void book_view_init(void)
 	lv_obj_move_background(book_view.screen);
 
 	// 2. 创建 FreeType 字体
+	//TODO: 考虑这里的字体文件路径
 	g_book_ui.font = lv_freetype_font_create("./resources/font/simsun.ttc",
 		LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
 		FONT_SIZE,
@@ -249,6 +406,8 @@ static void book_view_init(void)
 		LV_LOG_ERROR("FreeType font create failed");
 		return;
 	}
+
+	scan_dir_resources("./resources/book/");
 
 	// 3. 创建文本样式
 	static lv_style_t style;
@@ -268,35 +427,6 @@ static void book_view_init(void)
 	lv_obj_add_event_cb(book_view.screen, screen_event_handler,
 		LV_EVENT_CLICKED, NULL);
 	lv_obj_add_flag(book_view.screen, LV_OBJ_FLAG_CLICKABLE);
-
-
-	g_book_ui.fp = fopen(BOOK_FILE_PATH, "r");
-	if (!g_book_ui.fp) {
-		book_view_printf("Cannot open file: %s", BOOK_FILE_PATH);
-		return ;
-	}
-
-	// 7. 打开文件并初始化阅读器状态
-	g_book_ui.fp = fopen(BOOK_FILE_PATH, "r");
-	if (!g_book_ui.fp) {
-		LV_LOG_ERROR("Cannot open file: %s", BOOK_FILE_PATH);
-		lv_label_set_text_fmt(g_book_ui.label, "错误: 无法打开文件\n%s", BOOK_FILE_PATH);
-		return;
-	}
-
-	g_book_ui.page_buffer = (char *)malloc(PAGE_BUFFER);
-	if (!g_book_ui.page_buffer) {
-		LV_LOG_ERROR("Failed to allocate page buffer");
-		fclose(g_book_ui.fp);
-		g_book_ui.fp = NULL;
-		return;
-	}
-
-	// 8. 显示第一页
-	g_book_ui.current_pos = 0;
-	g_book_ui.history_top = 0;
-	memset(g_book_ui.history_pos, 0, sizeof(g_book_ui.history_pos));
-	show_page(g_book_ui.current_pos);
 
 	printf("book view init finish.\n");
 }

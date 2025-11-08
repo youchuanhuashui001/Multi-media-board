@@ -126,6 +126,58 @@ int main(int argc, char **argv)
     // inputdev 环境变量
     system("export LV_LINUX_EVDEV_POINTER_DEVICE=/dev/input/event1");
 
+
+
+//    lv_fs_file_t f;
+//    lv_fs_res_t res;
+//    res = lv_fs_open(&f, "A:resources/book/jianlai.txt", LV_FS_MODE_RD);
+//    if(res != LV_FS_RES_OK) printf("open file error %d!\n", res);
+//
+//    uint32_t read_num;
+//    uint8_t buf[100];
+//    res = lv_fs_read(&f, buf, 100, &read_num);
+//    if(res != LV_FS_RES_OK || read_num != 100) printf("read file error %d!\n", res);
+//
+//    printf("read num: %d\n", read_num);
+//    printf("data: ");
+//    for(int i = 0; i < read_num; i++) {
+//        printf("%c", buf[i]);
+//    }
+
+//lv_fs_close(&f);
+
+
+
+//    lv_fs_dir_t dir;
+//    lv_fs_res_t res;
+//    res = lv_fs_dir_open(&dir, "A:/tmp/resources/");
+//    if(res != LV_FS_RES_OK) printf("open dir failed.\n");
+//
+//    char fn[256];
+//    while(1) {
+//        res = lv_fs_dir_read(&dir, fn, sizeof(fn));
+//        if(res != LV_FS_RES_OK) {
+//            printf("read dir failed.\n");
+//            break;
+//        }
+//
+//        /* fn is empty if there are no more files to read. */
+//        if(strlen(fn) == 0) {
+//            break;
+//        }
+//
+//        printf("%s\n", fn);
+//    }
+//
+//lv_fs_dir_close(&dir);
+
+
+   // lv_obj_t * file_explorer = lv_file_explorer_create(lv_screen_active());
+   // lv_file_explorer_set_sort(file_explorer, LV_EXPLORER_SORT_KIND);
+
+   // lv_file_explorer_open_dir(file_explorer, "A:/tmp/resources/image/");
+
+
     view_manager_init();
 
     // 谁最先注册，谁就最先显示
