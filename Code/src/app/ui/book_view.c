@@ -1,19 +1,5 @@
 #include "common.h"
-#include "src/core/lv_obj_pos.h"
-#include "src/display/lv_display.h"
-#include "src/font/lv_font.h"
 #include "view_manager.h"
-#include <stdint.h>
-#include <wchar.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include "lvgl/lvgl.h"
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <sys/mman.h>
 
 #define FONT_SIZE            24
 #define BOOK_FILE_PATH       "A:/tmp/resources/book/"
@@ -31,11 +17,14 @@ typedef struct {
 	long history_pos[1024];           // 位置历史记录, 用于后退
 	int history_top;                  // 历史记录的个数
 
-	char *books_name[256];        // 所有的书籍名称
+	char *books_name[256];            // 所有的书籍名称
 	int book_count;                   // 书籍数量
 
-	lv_obj_t *book_shelf;            // 书架容器
+	lv_obj_t *back_btn;               // 返回按钮
+	lv_obj_t *back_label;             // 返回按钮标签 <
 
+	// 书架
+	lv_obj_t *book_shelf;            // 书架容器
 	struct book_item {
 		lv_obj_t *btn;        // 书籍按钮
 		lv_obj_t *cover;      // 封面图片  w*h 200*240
@@ -208,8 +197,39 @@ static void screen_event_handler(lv_event_t * e)
 	lv_point_t point;
 	lv_indev_get_point(indev, &point);
 
+	// 检查是否点击了屏幕中间区域
+	int screen_width = lv_display_get_horizontal_resolution(NULL);
+	int screen_height = lv_display_get_vertical_resolution(NULL);
+	int center_x = screen_width / 2;
+	int center_y = screen_height / 2;
+	static int back_btn_visible = 0;
+
+	// 点击屏幕中间显示半透明的回退按钮，用于回到书架
+	// 当回退按钮显示时，再次点击任何位置都会隐藏回退按钮
+	// 点击屏幕左侧区域回退上一页，点击右侧区域翻到下一页
 	if (code == LV_EVENT_CLICKED) {
-		if (point.x > lv_display_get_horizontal_resolution(NULL) / 2) {
+		book_view_printf("Screen clicked at (%d, %d)\n", point.x, point.y);
+		if (point.x >= center_x - 50 && point.x <= center_x + 50 &&
+		    point.y >= center_y - 50 && point.y <= center_y + 50) {
+			book_view_printf("Show back button.\n");
+			if (back_btn_visible == 0) {
+				back_btn_visible = 1;
+				// 显示返回按钮
+				lv_obj_clear_flag(g_book_ui.back_btn, LV_OBJ_FLAG_HIDDEN);
+				lv_obj_clear_flag(g_book_ui.back_label, LV_OBJ_FLAG_HIDDEN);
+				return;
+			}
+		}
+
+		if (back_btn_visible == 1) {
+			back_btn_visible = 0;
+			// 隐藏返回按钮
+			lv_obj_add_flag(g_book_ui.back_btn, LV_OBJ_FLAG_HIDDEN);
+			lv_obj_add_flag(g_book_ui.back_label, LV_OBJ_FLAG_HIDDEN);
+			return;
+		}
+
+		if (point.x > screen_width / 2) {
 			book_view_printf("next page.\n");
 			show_page(g_book_ui.current_pos);
 		} else {
@@ -256,7 +276,11 @@ static void book_btn_event_handler(lv_event_t * e)
 			return;
 		}
 
+		// 隐藏书架界面
 		lv_obj_add_flag(g_book_ui.book_shelf, LV_OBJ_FLAG_HIDDEN);
+
+		// 显示小说界面
+		lv_obj_clear_flag(g_book_ui.label, LV_OBJ_FLAG_HIDDEN);
 
 		g_book_ui.page_buffer = (char *)malloc(PAGE_BUFFER);
 		if (!g_book_ui.page_buffer) {
@@ -378,6 +402,36 @@ int scan_dir_resources(const char *path)
 
 }
 
+static void back_btn_event_handler(lv_event_t * e)
+{
+	lv_event_code_t code = lv_event_get_code(e);
+
+	if(code == LV_EVENT_CLICKED) {
+		book_view_printf("Back to book shelf.\n");
+
+		// 关闭当前书籍文件
+		if (g_book_ui.fp) {
+			fclose(g_book_ui.fp);
+			g_book_ui.fp = NULL;
+		}
+		if (g_book_ui.page_buffer) {
+			free(g_book_ui.page_buffer);
+			g_book_ui.page_buffer = NULL;
+		}
+
+		// 隐藏文本显示界面
+		lv_obj_add_flag(g_book_ui.label, LV_OBJ_FLAG_HIDDEN);
+
+		// 隐藏返回按钮
+		lv_obj_add_flag(g_book_ui.back_btn, LV_OBJ_FLAG_HIDDEN);
+		lv_obj_add_flag(g_book_ui.back_label, LV_OBJ_FLAG_HIDDEN);
+
+		// 显示书架界面
+		lv_obj_clear_flag(g_book_ui.book_shelf, LV_OBJ_FLAG_HIDDEN);
+
+	}
+}
+
 // 主界面初始化
 static void book_view_init(void)
 {
@@ -407,8 +461,6 @@ static void book_view_init(void)
 		return;
 	}
 
-	scan_dir_resources("./resources/book/");
-
 	// 3. 创建文本样式
 	static lv_style_t style;
 	lv_style_init(&style);
@@ -427,6 +479,29 @@ static void book_view_init(void)
 	lv_obj_add_event_cb(book_view.screen, screen_event_handler,
 		LV_EVENT_CLICKED, NULL);
 	lv_obj_add_flag(book_view.screen, LV_OBJ_FLAG_CLICKABLE);
+
+	scan_dir_resources("./resources/book/");
+
+	// 左上角放一个 40*40 的 button
+	g_book_ui.back_btn = lv_btn_create(book_view.screen);
+	lv_obj_set_size(g_book_ui.back_btn, 40, 40);
+	lv_obj_align(g_book_ui.back_btn, LV_ALIGN_TOP_LEFT, 0, 0);
+
+	g_book_ui.back_label = lv_label_create(g_book_ui.back_btn);
+	lv_label_set_text(g_book_ui.back_label, "<");
+	lv_obj_center(g_book_ui.back_label);
+
+	// 设置返回按钮的样式
+	lv_obj_set_style_bg_color(g_book_ui.back_btn, lv_color_hex(0x808080), 0);
+	lv_obj_set_style_bg_opa(g_book_ui.back_btn, LV_OPA_50, 0);
+	lv_obj_set_style_radius(g_book_ui.back_btn, 25, 0);  // 圆形按钮
+
+	// 添加点击事件
+	lv_obj_add_event_cb(g_book_ui.back_btn, back_btn_event_handler, LV_EVENT_CLICKED, NULL);
+
+	// 初始时隐藏返回按钮
+	lv_obj_add_flag(g_book_ui.back_btn, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_add_flag(g_book_ui.back_label, LV_OBJ_FLAG_HIDDEN);
 
 	printf("book view init finish.\n");
 }
