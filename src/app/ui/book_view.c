@@ -2,10 +2,12 @@
 #include "src/core/lv_obj.h"
 #include "src/misc/lv_types.h"
 #include "view_manager.h"
+#include <stdio.h>
 
 #define FONT_SIZE            24
-#define BOOK_FILE_PATH       "A:/tmp/resources/book/"
+#define BOOK_FILE_PATH       "A:/tmp/resources/book/"            // lv_fs 需要使用 A: 作为根目录
 #define PAGE_BUFFER          4096
+#define BOOK_CONFIG_PATH    "./proc/book/book_progress.conf"     // c fopen，不需要 A:
 
 typedef struct {
 	lv_obj_t *background;             // 背景图片
@@ -34,6 +36,11 @@ typedef struct {
 		lv_obj_t *cover;      // 封面图片  w*h 200*240
 		lv_obj_t *title;      // 书籍名称
 	} *book_items;
+
+	// 保存与恢复阅读进度
+	FILE *config_fp;        // 配置文件指针
+	char *current_book;     // 当前正在阅读的书籍名称
+	// current_posion       // 已存在
 } book_ui_t;
 
 static book_ui_t g_book_ui;
@@ -284,7 +291,6 @@ static void book_btn_event_handler(lv_event_t * e)
 		lv_obj_add_flag(g_book_ui.book_shelf, LV_OBJ_FLAG_HIDDEN);
 
 		// 显示小说界面
-//		lv_obj_clear_flag(g_book_ui.label, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_clear_flag(g_book_ui.text_area, LV_OBJ_FLAG_HIDDEN);
 
 		g_book_ui.page_buffer = (char *)malloc(PAGE_BUFFER);
@@ -299,6 +305,26 @@ static void book_btn_event_handler(lv_event_t * e)
 		g_book_ui.current_pos = 0;
 		g_book_ui.history_top = 0;
 		memset(g_book_ui.history_pos, 0, sizeof(g_book_ui.history_pos));
+
+		// 恢复上次阅读进度
+		g_book_ui.config_fp = fopen(BOOK_CONFIG_PATH, "r");
+		printf("current_book_name:%s\n", current_book_name);
+		if (g_book_ui.config_fp) {
+			while (1) {
+				char book_name[256];
+				size_t pos;
+				int ret = fscanf(g_book_ui.config_fp, "%255s %zu\n", book_name, &pos);
+				if (ret != 2) {
+					break;
+				}
+				printf("Read config: %s %zu\n", book_name, pos);
+				if (strcmp(book_name, current_book_name) == 0) {
+					book_view_printf("Restore book: %s, pos: %zu\n", book_name, pos);
+					g_book_ui.current_pos = pos;
+					break;
+				}
+			}
+		}
 
 		// 显示第一页
 		show_page(g_book_ui.current_pos);
@@ -414,6 +440,48 @@ static void back_btn_event_handler(lv_event_t * e)
 	if(code == LV_EVENT_CLICKED) {
 		book_view_printf("Back to book shelf.\n");
 
+		// 保存当前阅读进度
+		if (current_book_name) {
+			char temp_conf_path[256];
+			char new_conf_path[256];
+			FILE *temp_fp;
+
+			// 创建临时配置文件
+			snprintf(temp_conf_path, sizeof(temp_conf_path), "%s.tmp", BOOK_CONFIG_PATH);
+			temp_fp = fopen(temp_conf_path, "w");
+			if (!temp_fp) {
+				book_view_printf("Failed to create temp config file\n");
+				return;
+			}
+
+			// 如果原配置文件存在,则复制其他书籍的进度
+			if (g_book_ui.config_fp) {
+				rewind(g_book_ui.config_fp);
+				while (1) {
+					char book_name[256];
+					size_t pos;
+					int ret = fscanf(g_book_ui.config_fp, "%255s %zu\n", book_name, &pos);
+					if (ret != 2) {
+						break;
+					}
+					// 跳过当前书籍,稍后会写入最新进度
+					if (strcmp(book_name, current_book_name) != 0) {
+						fprintf(temp_fp, "%s %zu\n", book_name, pos);
+					}
+				}
+				fclose(g_book_ui.config_fp);
+			}
+
+			// 写入当前书籍的上一个进度，因为需要显示之前退出时的那一页
+//			fprintf(temp_fp, "%s %ld\n", current_book_name, g_book_ui.current_pos);
+			fprintf(temp_fp, "%s %ld\n", current_book_name, g_book_ui.history_pos[g_book_ui.history_top - 1]);
+			fclose(temp_fp);
+
+			// 替换原配置文件
+			snprintf(new_conf_path, sizeof(new_conf_path), "%s", BOOK_CONFIG_PATH);
+			rename(temp_conf_path, new_conf_path);
+		}
+
 		// 关闭当前书籍文件
 		if (g_book_ui.fp) {
 			fclose(g_book_ui.fp);
@@ -434,7 +502,6 @@ static void back_btn_event_handler(lv_event_t * e)
 
 		// 显示书架界面
 		lv_obj_clear_flag(g_book_ui.book_shelf, LV_OBJ_FLAG_HIDDEN);
-
 	}
 }
 
