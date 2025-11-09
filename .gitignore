@@ -1,4 +1,4 @@
-Code/module/lib/*
+/module/
 Document/.obsidian/
 .cache/
 Code/module/lcd/lib/brotli/
