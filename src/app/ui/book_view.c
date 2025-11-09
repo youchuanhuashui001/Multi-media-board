@@ -384,12 +384,12 @@ int scan_dir_resources(const char *path)
 		lv_obj_align(g_book_ui.book_items[i].title, LV_ALIGN_BOTTOM_MID, 0, -10);
 
 		// 设置按钮位置
-		if (i < 5) {
-		    lv_obj_align(g_book_ui.book_items[i].btn, LV_ALIGN_TOP_LEFT, 10 + i*210, 20);
-		} else if (i < 10) {
-		    lv_obj_align(g_book_ui.book_items[i].btn, LV_ALIGN_TOP_LEFT, 10 + (i-5)*200, 280);
+		if (i < 4) {
+		    lv_obj_align(g_book_ui.book_items[i].btn, LV_ALIGN_TOP_LEFT, 45 + i*245, 20);
+		} else if (i < 8) {
+		    lv_obj_align(g_book_ui.book_items[i].btn, LV_ALIGN_TOP_LEFT, 45 + (i-4)*245, 280);
 		} else {
-			printf("more than 10 books not support yet.\n");
+			printf("more than 8 books not support yet.\n");
 		}
 
 		// 添加点击事件
@@ -473,6 +473,7 @@ static void book_view_init(void)
 	lv_obj_add_style(g_book_ui.label, &style, 0);
 	lv_obj_set_size(g_book_ui.label, lv_display_get_horizontal_resolution(NULL), lv_display_get_vertical_resolution(NULL));
 	lv_label_set_long_mode(g_book_ui.label, LV_LABEL_LONG_WRAP);
+	lv_label_set_text(g_book_ui.label, ""); // 需要初始设为空，否则会默认显示 TEXT
 	lv_obj_align(g_book_ui.label, LV_ALIGN_TOP_LEFT, 0, 0);
 
 	// 6. 添加触摸事件
