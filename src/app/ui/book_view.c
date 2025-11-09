@@ -1,4 +1,6 @@
 #include "common.h"
+#include "src/core/lv_obj.h"
+#include "src/misc/lv_types.h"
 #include "view_manager.h"
 
 #define FONT_SIZE            24
@@ -11,6 +13,8 @@ typedef struct {
 	lv_obj_t *page_label;             // 页码显示
 	lv_font_t *font;                  // LVGL FreeType字体
 
+	// 文本界面
+	lv_obj_t *text_area;              // 文本显示区域
 	FILE *fp;                         // 文件指针
 	char *page_buffer;                // 用于存放一页数据的缓冲区
 	long current_pos;                 // 当前文件偏移量
@@ -23,7 +27,7 @@ typedef struct {
 	lv_obj_t *back_btn;               // 返回按钮
 	lv_obj_t *back_label;             // 返回按钮标签 <
 
-	// 书架
+	// 书架界面
 	lv_obj_t *book_shelf;            // 书架容器
 	struct book_item {
 		lv_obj_t *btn;        // 书籍按钮
@@ -280,7 +284,8 @@ static void book_btn_event_handler(lv_event_t * e)
 		lv_obj_add_flag(g_book_ui.book_shelf, LV_OBJ_FLAG_HIDDEN);
 
 		// 显示小说界面
-		lv_obj_clear_flag(g_book_ui.label, LV_OBJ_FLAG_HIDDEN);
+//		lv_obj_clear_flag(g_book_ui.label, LV_OBJ_FLAG_HIDDEN);
+		lv_obj_clear_flag(g_book_ui.text_area, LV_OBJ_FLAG_HIDDEN);
 
 		g_book_ui.page_buffer = (char *)malloc(PAGE_BUFFER);
 		if (!g_book_ui.page_buffer) {
@@ -420,7 +425,8 @@ static void back_btn_event_handler(lv_event_t * e)
 		}
 
 		// 隐藏文本显示界面
-		lv_obj_add_flag(g_book_ui.label, LV_OBJ_FLAG_HIDDEN);
+		lv_obj_add_flag(g_book_ui.text_area, LV_OBJ_FLAG_HIDDEN);
+//		lv_obj_add_flag(g_book_ui.label, LV_OBJ_FLAG_HIDDEN);
 
 		// 隐藏返回按钮
 		lv_obj_add_flag(g_book_ui.back_btn, LV_OBJ_FLAG_HIDDEN);
@@ -469,7 +475,19 @@ static void book_view_init(void)
 	lv_style_set_text_line_space(&style, 0);  // 设置行间距为0
 
 	// 4. 创建主文本标签
-	g_book_ui.label = lv_label_create(book_view.screen);
+	g_book_ui.text_area = lv_obj_create(book_view.screen);
+	//TODO: 后续可以把文本内容不要显示整个页面
+	lv_obj_set_size(g_book_ui.text_area, lv_display_get_horizontal_resolution(NULL), lv_display_get_vertical_resolution(NULL));
+	// 移除屏幕的默认样式（边框、背景等）
+	lv_obj_set_style_border_width(g_book_ui.text_area, 0, 0);
+	lv_obj_set_style_bg_opa(g_book_ui.text_area, LV_OPA_0, 0);
+	lv_obj_set_style_pad_all(g_book_ui.text_area, 0, 0);
+	lv_obj_set_style_radius(g_book_ui.text_area, 0, 0);
+	lv_obj_set_style_bg_color(g_book_ui.text_area,
+	                         lv_color_make(0xE7, 0xDB, 0xB5),
+	                         LV_PART_MAIN);
+
+	g_book_ui.label = lv_label_create(g_book_ui.text_area);
 	lv_obj_add_style(g_book_ui.label, &style, 0);
 	lv_obj_set_size(g_book_ui.label, lv_display_get_horizontal_resolution(NULL), lv_display_get_vertical_resolution(NULL));
 	lv_label_set_long_mode(g_book_ui.label, LV_LABEL_LONG_WRAP);
@@ -477,14 +495,14 @@ static void book_view_init(void)
 	lv_obj_align(g_book_ui.label, LV_ALIGN_TOP_LEFT, 0, 0);
 
 	// 6. 添加触摸事件
-	lv_obj_add_event_cb(book_view.screen, screen_event_handler,
+	lv_obj_add_event_cb(g_book_ui.text_area, screen_event_handler,
 		LV_EVENT_CLICKED, NULL);
-	lv_obj_add_flag(book_view.screen, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_flag(g_book_ui.text_area, LV_OBJ_FLAG_CLICKABLE);
 
 	scan_dir_resources("./resources/book/");
 
 	// 左上角放一个 40*40 的 button
-	g_book_ui.back_btn = lv_btn_create(book_view.screen);
+	g_book_ui.back_btn = lv_btn_create(g_book_ui.text_area);
 	lv_obj_set_size(g_book_ui.back_btn, 40, 40);
 	lv_obj_align(g_book_ui.back_btn, LV_ALIGN_TOP_LEFT, 0, 0);
 
