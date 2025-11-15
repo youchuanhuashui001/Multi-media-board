@@ -99,6 +99,26 @@ arm-buildroot-linux-gnueabihf-gcc -I /home/tanxzh/project/100ask/100ask_imx6ull_
   - 修改后需要执行 `alsactl store` 来保存设置，否则重启后会丢失配置
   - `alsactl -f /var/lib/alsa/asound.state store`
 
+### ffmpeg
+- buildroot 已经编译好了 ffmpeg，因此在使用的时候直接用就行了
+```bash
+tanxzh@tanxzh-MS-7D42 [21时28分18秒] [~/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/build] [37ba456 *]
+-> % ls ffmpeg-4.2.3
+Changelog  config.h   CONTRIBUTING.md  COPYING.GPLv3     COPYING.LGPLv3  doc      ffmpeg    fftools     libavcodec   libavfilter  libavresample  libpostproc    libswscale  MAINTAINERS  presets    RELEASE        tests  VERSION
+compat     configure  COPYING.GPLv2    COPYING.LGPLv2.1  CREDITS         ffbuild  ffmpeg_g  INSTALL.md  libavdevice  libavformat  libavutil      libswresample  LICENSE.md  Makefile     README.md  RELEASE_NOTES  tools
+```
+- 使用 pkg-config 查看如何指定库文件路径和头文件路径
+```bash
+./../../host/bin/pkg-config --libs libavformat libavcodec libavutil
+ ./../../host/bin/pkg-config --cflags libavformat libavcodec libavutil
+```
+- 编译 example:
+```bash
+arm-buildroot-linux-gnueabihf-gcc -o step2_open_decoder step2_open_decoder.c \
+-I~/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/host/bin/../arm-buildroot-linux-gnueabihf/sysroot/home/tanxzh/tools/lib/ffmpeg/include \
+-L~/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/host/bin/../arm-buildroot-linux-gnueabihf/sysroot/home/tanxzh/tools/lib/ffmpeg/lib -lavformat -lavcodec -lavutil
+```
+
 
 ## 视频
 ### mplayer
