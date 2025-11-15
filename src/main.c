@@ -20,21 +20,6 @@
 #include "common.h"
 #include "view_manager.h"
 
-//#include <unistd.h>
-//#include <pthread.h>
-//
-//
-//#include <sys/types.h>
-//#include <sys/stat.h>
-//
-//
-//#include "lvgl/lvgl.h"
-//#include "lvgl/demos/lv_demos.h"
-//
-//#include "src/lib/driver_backends.h"
-//#include "src/lib/simulator_util.h"
-//#include "src/lib/simulator_settings.h"
-
 /* Internal functions */
 static void configure_simulator(int argc, char **argv);
 static void print_lvgl_version(void);

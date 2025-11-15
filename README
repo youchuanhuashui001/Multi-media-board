@@ -1,0 +1,11 @@
+# 拉代码
+## 克隆时同时初始化子模块
+```bash
+git clone --recurse-submodules <repository_url>
+```
+
+## 已克隆仓库后初始化子模块
+```bash
+cd <repository_directory>
+git submodule update --init --recursive
+```
