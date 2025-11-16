@@ -119,6 +119,11 @@ arm-buildroot-linux-gnueabihf-gcc -o step2_open_decoder step2_open_decoder.c \
 -L~/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/host/bin/../arm-buildroot-linux-gnueabihf/sysroot/home/tanxzh/tools/lib/ffmpeg/lib -lavformat -lavcodec -lavutil
 ```
 
+- pc 编译 ffmpeg：
+- 参考： https://www.cnblogs.com/ssyfj/p/14556182.html
+- gcc -o step4_play_audio step4_play_audio.c -I /usr/local/ffmpeg/include/ -L /usr/local/ffmpeg/lib/ -lavutil -lavformat -lavcodec -lavdevice -lswresample -lasound
+
+
 
 ## 视频
 ### mplayer

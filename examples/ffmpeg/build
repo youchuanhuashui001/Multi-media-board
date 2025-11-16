@@ -1,0 +1,60 @@
+#!/bin/bash
+
+#
+# Simplified build script for FFmpeg examples.
+#
+# Usage: ./build <source_file.c> [arm|pc]
+# Example: ./build step4_play_audio.c arm
+#
+
+SOURCE_FILE=${1}
+OUTPUT_NAME=${1%.c}  # 去掉 .c 后缀作为输出文件名
+TARGET=${2:-arm}     # 默认目标为 arm
+
+if [ ! -f "$SOURCE_FILE" ]; then
+    echo "Error: Source file '${SOURCE_FILE}' not found."
+    exit 1
+fi
+
+echo "--- Building '${SOURCE_FILE}' for target '${TARGET}' ---"
+
+# --- Configuration ---
+# A comprehensive list of libraries that might be needed by any example.
+# The linker will only use the ones it actually needs.
+ALL_LIBS="-lavutil -lavformat -lavcodec -lavdevice -lswresample -lasound -pthread"
+
+if [ "$TARGET" = "arm" ]; then
+    # ARM cross-compilation settings
+    CC="arm-buildroot-linux-gnueabihf-gcc"
+    INCLUDES="-I~/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/host/arm-buildroot-linux-gnueabihf/sysroot/home/tanxzh/tools/lib/ffmpeg/include"
+    LIB_PATHS="-L~/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/host/arm-buildroot-linux-gnueabihf/sysroot/home/tanxzh/tools/lib/ffmpeg/lib"
+elif [ "$TARGET" = "pc" ]; then
+    # Native PC compilation settings
+    CC="gcc"
+    INCLUDES="-I/usr/local/ffmpeg/include/"
+    LIB_PATHS="-L/usr/local/ffmpeg/lib/"
+else
+    echo "Error: Invalid target '${TARGET}'. Please use 'pc' or 'arm'."
+    exit 1
+fi
+
+# --- Build Command ---
+CMD="$CC -o $OUTPUT_NAME $SOURCE_FILE $INCLUDES $LIB_PATHS $ALL_LIBS"
+
+echo "Executing command:"
+echo "$CMD"
+echo ""
+
+eval $CMD
+
+# --- Result Check ---
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "--- Build successful: '$OUTPUT_NAME' created. ---"
+else
+    echo ""
+    echo "--- Build failed. ---"
+    exit 1
+fi
+
+exit 0
