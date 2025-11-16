@@ -20,12 +20,18 @@ LDFLAGS         ?= -lm -pthread
 CFLAGS          += -I./src/
 CFLAGS          += -I./lvgl/
 CFLAGS          += -I./src/include -I./src/include/app/ -I./src/include/common/
+
 # freetype, tslib
 CFLAGS          += -I/home/tanxzh/tools/lib/freetype/include
 LDFLAGS         += -L/home/tanxzh/tools/lib/freetype/lib
 # brotli
-LDFLAGS          += -L/home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/lib
+LDFLAGS         += -L/home/tanxzh/project/100ask/100ask_imx6ull_sdk/ToolChain/arm-buildroot-linux-gnueabihf_sdk-buildroot/lib
 LDFLAGS         += -lfreetype -lbrotlidec -lbrotlicommon -lts
+
+# ffmpeg
+CFLAGS          += -I/home/tanxzh/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/host/arm-buildroot-linux-gnueabihf/sysroot/home/tanxzh/tools/lib/ffmpeg/include
+LDFLAGS         += -L/home/tanxzh/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/host/arm-buildroot-linux-gnueabihf/sysroot/home/tanxzh/tools/lib/ffmpeg/lib
+LDFLAGS         += -lavutil -lavformat -lavcodec -lavdevice -lswresample -lasound
 
 BIN             = main
 BUILD_DIR       = ./build

@@ -1,37 +1,4 @@
-/*
- * FFmpeg 学习第8步：实现一个标准的播放器架构
- *
- * 简介:
- * 本程序将之前的所有知识整合，构建一个更接近实际应用的标准播放器架构。
- *
- * 核心架构:
- * 1. **线程分离**:
- *    - **主线程 (main)**: 模拟UI线程，负责接收用户输入、发送控制指令（播放/停止）、以及根据播放进度刷新信息（歌词）。
- *    - **播放线程 (playback_thread_func)**: 后台引擎，负责所有耗时的音频操作（打开文件、解码、重采样、写入声卡）。
- *
- * 2. **状态管理与通信**:
- *    - **Player 结构体**: 一个核心的结构体，用于保存播放器的所有状态（播放/暂停/停止、当前时间、文件路径等）。
- *    - **线程同步**: 使用 `pthread_mutex_t` (互斥锁) 来保护 `Player` 结构体，确保多线程访问时数据安全。
- *      使用 `pthread_cond_t` (条件变量) 来实现线程间的通信和等待/唤醒机制。
- *
- * 3. **控制API**:
- *    - 提供一套类似 `player_start`, `player_stop` 的函数，让主线程可以清晰地控制播放线程的行为。
- *
- * 工作流程:
- * 1. `main` 函数创建 `Player` 并启动 `playback_thread_func` 线程。
- * 2. `playback_thread_func` 启动后进入睡眠，等待播放指令。
- * 3. `main` 函数调用 `player_start`，设置好文件路径和状态，并唤醒播放线程。
- * 4. `playback_thread_func` 被唤醒，发现状态变为“播放中”，于是开始执行完整的打开文件、解码、播放循环。
- * 5. 在播放循环中，播放线程会持续计算并更新 `Player` 结构体中的 `current_time_ms`。
- * 6. 与此同时，`main` 函数进入自己的循环，模拟UI刷新：它会定期调用 `player_get_time` 获取当前时间，并用它来显示歌词。
- * 7. 播放结束后，`main` 函数调用 `player_destroy` 来干净地关闭线程和释放所有资源。
- *
- * 编译命令:
- * gcc -o step8_standard_player step8_standard_player.c \
- *     $(pkg-config --cflags libavformat libavcodec libswresample libavutil alsa) \
- *     $(pkg-config --libs libavformat libavcodec libswresample libavutil alsa) -pthread
- */
-
+#include "common.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,11 +21,48 @@
 #define TARGET_FORMAT SND_PCM_FORMAT_S16_LE
 #define TARGET_SAMPLE_FMT AV_SAMPLE_FMT_S16
 
-// --- 歌词处理部分 (与 step7 相同) ---
+// --- 歌词处理部分 ---
 typedef struct {
     long time_ms;
     char text[256];
 } LyricLine;
+
+// --- 标准播放器核心架构 ---
+
+typedef enum {
+    STATUS_STOPPED,
+    STATUS_PLAYING,
+    STATUS_PAUSED,
+    STATUS_EXITING
+} PlayerStatus;
+
+typedef struct {
+    // 线程与同步
+    pthread_t thread_id;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    PlayerStatus status;
+
+    // 媒体信息
+    char media_filepath[1024];
+    int64_t duration_ms;
+    int64_t current_time_ms;
+
+    // 内部播放状态
+    long long total_frames_written;
+} Player;
+
+LyricLine *lyrics = NULL;
+Player *player = NULL;
+
+const char *media_filepath = NULL;
+const char *lrc_filepath = NULL;
+
+int lyric_count = 0;
+
+pthread_t lrc_thread_id;
+
+lv_obj_t *g_lrc_label;
 
 static int parse_lrc_file(const char *filepath, LyricLine **lyrics_out, int *count_out) {
     FILE *file = fopen(filepath, "r");
@@ -104,38 +108,13 @@ static int parse_lrc_file(const char *filepath, LyricLine **lyrics_out, int *cou
     return 0;
 }
 
-// --- 标准播放器核心架构 ---
-
-typedef enum {
-    STATUS_STOPPED,
-    STATUS_PLAYING,
-    STATUS_PAUSED,
-    STATUS_EXITING
-} PlayerStatus;
-
-typedef struct {
-    // 线程与同步
-    pthread_t thread_id;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    PlayerStatus status;
-
-    // 媒体信息
-    char media_filepath[1024];
-    int64_t duration_ms;
-    int64_t current_time_ms;
-
-    // 内部播放状态
-    long long total_frames_written;
-} Player;
-
 // 播放线程中的一个辅助函数，用于处理一帧解码后的音频
 static void process_frame(AVFrame *frame, SwrContext *swr_ctx, snd_pcm_t *pcm_handle, Player *player, uint64_t out_ch_layout) {
     uint8_t *out_buffer;
     int out_samples = swr_get_out_samples(swr_ctx, frame->nb_samples);
     av_samples_alloc(&out_buffer, NULL, av_get_channel_layout_nb_channels(out_ch_layout), out_samples, TARGET_SAMPLE_FMT, 0);
     int converted_samples = swr_convert(swr_ctx, &out_buffer, out_samples, (const uint8_t **)frame->extended_data, frame->nb_samples);
-    
+
     snd_pcm_sframes_t written_frames = snd_pcm_writei(pcm_handle, out_buffer, converted_samples);
     av_freep(&out_buffer);
 
@@ -156,7 +135,7 @@ static void process_frame(AVFrame *frame, SwrContext *swr_ctx, snd_pcm_t *pcm_ha
 // 播放线程函数
 void* playback_thread_func(void *arg) {
     Player *player = (Player *)arg;
-    int ret;
+//    int ret;
 
     // FFmpeg & ALSA 变量
     AVFormatContext *pFormatContext = NULL;
@@ -307,7 +286,7 @@ Player* player_create() {
     return player;
 }
 
-void player_destroy(Player *player) {
+void player_destroy(void) {
     if (!player) return;
 
     pthread_mutex_lock(&player->mutex);
@@ -322,17 +301,21 @@ void player_destroy(Player *player) {
     free(player);
 }
 
-void player_start(Player *player, const char *media_path) {
-    if (!player || !media_path) return;
+//void player_start(Player *player, const char *media_path) {
+void player_start(void)
+{
+    if (!player || !media_filepath) return;
 
     pthread_mutex_lock(&player->mutex);
-    strncpy(player->media_filepath, media_path, sizeof(player->media_filepath) - 1);
+    strncpy(player->media_filepath, media_filepath, sizeof(player->media_filepath) - 1);
     player->status = STATUS_PLAYING;
     pthread_cond_signal(&player->cond);
     pthread_mutex_unlock(&player->mutex);
 }
 
-void player_stop(Player *player) {
+//void player_stop(Player *player) {
+void player_stop(void)
+{
     if (!player) return;
     pthread_mutex_lock(&player->mutex);
     if (player->status == STATUS_PLAYING || player->status == STATUS_PAUSED) {
@@ -359,24 +342,107 @@ PlayerStatus player_get_status(Player *player) {
 
 
 // --- Main函数 (模拟UI线程) ---
+void* lrc_thread_func(void *arg) {
+    int current_lyric_index = 0;
+    char display_text[2048] = {0};  // 足够容纳 5 行歌词
+    
+    while (1) {
+        PlayerStatus status = player_get_status(player);
+        if (status == STATUS_STOPPED) {
+            usleep(50000);
+            continue;
+        }
 
-int main(int argc, char *argv[]) {
-    if (argc < 3) {
-        printf("Usage: %s <media_file_path> <lrc_file_path>\n", argv[0]);
-        return -1;
+        int64_t current_time = player_get_time(player);
+
+        if (lyrics && current_lyric_index < lyric_count) {
+            while (current_lyric_index < lyric_count && current_time >= lyrics[current_lyric_index].time_ms) {
+                // 拼接 5 句歌词：前两句 + 当前 + 后两句
+                memset(display_text, 0, sizeof(display_text));
+                
+                // 前两句
+                if (current_lyric_index >= 2) {
+                    snprintf(display_text, sizeof(display_text), "%s\n", lyrics[current_lyric_index - 2].text);
+                    snprintf(display_text + strlen(display_text), sizeof(display_text) - strlen(display_text), "%s\n", lyrics[current_lyric_index - 1].text);
+                } else if (current_lyric_index == 1) {
+                    snprintf(display_text, sizeof(display_text), "%s\n", lyrics[current_lyric_index - 1].text);
+                }
+                
+                // 当前歌词
+                snprintf(display_text + strlen(display_text), sizeof(display_text) - strlen(display_text), "%s\n", lyrics[current_lyric_index].text);
+                
+                // 后两句
+                if (current_lyric_index + 1 < lyric_count) {
+                    snprintf(display_text + strlen(display_text), sizeof(display_text) - strlen(display_text), "%s\n", lyrics[current_lyric_index + 1].text);
+                }
+                if (current_lyric_index + 2 < lyric_count) {
+                    snprintf(display_text + strlen(display_text), sizeof(display_text) - strlen(display_text), "%s\n", lyrics[current_lyric_index + 2].text);
+                }
+                
+                // 设置标签文本
+                lv_label_set_text(g_lrc_label, display_text);
+                current_lyric_index++;
+            }
+        }
+
+        usleep(50000); // 50ms
     }
-    const char *media_filepath = argv[1];
-    const char *lrc_filepath = argv[2];
+    return NULL;
+}
 
-    LyricLine *lyrics = NULL;
-    int lyric_count = 0;
+#if 0
+void* lrc_thread_func(void *arg) {
+    int current_lyric_index = 0;
+    while (1) {
+        PlayerStatus status = player_get_status(player);
+        if (status == STATUS_STOPPED) {
+            continue;
+//            // 检查是否还有最后一秒的歌词需要显示
+//            int64_t current_time = player_get_time(player);
+//            if (lyrics && current_lyric_index < lyric_count && current_time >= lyrics[current_lyric_index].time_ms) {
+//                 // 再刷新一次歌词
+//            } else {
+//                break; // 播放已停止，退出UI循环
+//            }
+        }
+//         if (status == STATUS_EXITING) break;
+
+
+        int64_t current_time = player_get_time(player);
+
+        if (lyrics && current_lyric_index < lyric_count) {
+            while (current_lyric_index < lyric_count && current_time >= lyrics[current_lyric_index].time_ms) {
+                lv_label_set_text(g_lrc_label, "%s\n%s\n%s\n", (current_lyric_index > 0) ? lyrics[current_lyric_index-1].text : "", lyrics[current_lyric_index].text, lyrics[current_lyric_index+1].text);
+                current_lyric_index++;
+            }
+        }
+
+        usleep(50000); // 50ms
+    }
+}
+#endif
+
+
+int audio_player_init(const char *audio_path, const char *lrc_path, lv_obj_t *lrc_label)
+{
+//    if (argc < 3) {
+//        printf("Usage: %s <media_file_path> <lrc_file_path>\n", argv[0]);
+//        return -1;
+//    }
+//    const char *media_filepath = audio_path;
+//    const char *lrc_filepath = lrc_path;
+
+    media_filepath = audio_path;
+    lrc_filepath = lrc_path;
+    g_lrc_label = lrc_label;
+
     if (parse_lrc_file(lrc_filepath, &lyrics, &lyric_count) != 0) {
         fprintf(stderr, "Could not load lyrics.\n");
         return -1;
     }
     printf("[Main Thread] Lyrics loaded.\n");
 
-    Player *player = player_create();
+    player = player_create();
     if (!player) {
         fprintf(stderr, "Failed to create player.\n");
         free(lyrics);
@@ -385,39 +451,43 @@ int main(int argc, char *argv[]) {
     printf("[Main Thread] Player created.\n");
 
     printf("[Main Thread] Starting playback...\n");
-    player_start(player, media_filepath);
+//    player_start(player, media_filepath);
 
-    int current_lyric_index = 0;
-    while (1) {
-        PlayerStatus status = player_get_status(player);
-        if (status == STATUS_STOPPED) {
-            // 检查是否还有最后一秒的歌词需要显示
-            int64_t current_time = player_get_time(player);
-            if (lyrics && current_lyric_index < lyric_count && current_time >= lyrics[current_lyric_index].time_ms) {
-                 // 再刷新一次歌词
-            } else {
-                break; // 播放已停止，退出UI循环
-            }
-        }
-         if (status == STATUS_EXITING) break;
+    pthread_create(&lrc_thread_id, NULL, lrc_thread_func, player);
 
+//    int current_lyric_index = 0;
+//    while (1) {
+//        PlayerStatus status = player_get_status(player);
+//        if (status == STATUS_STOPPED) {
+//            continue;
+////            // 检查是否还有最后一秒的歌词需要显示
+////            int64_t current_time = player_get_time(player);
+////            if (lyrics && current_lyric_index < lyric_count && current_time >= lyrics[current_lyric_index].time_ms) {
+////                 // 再刷新一次歌词
+////            } else {
+////                break; // 播放已停止，退出UI循环
+////            }
+//        }
+////         if (status == STATUS_EXITING) break;
+//
+//
+//        int64_t current_time = player_get_time(player);
+//
+//        if (lyrics && current_lyric_index < lyric_count) {
+//            while (current_lyric_index < lyric_count && current_time >= lyrics[current_lyric_index].time_ms) {
+//                printf(">>> %s\n", lyrics[current_lyric_index].text);
+//                current_lyric_index++;
+//            }
+//        }
+//
+//        usleep(50000); // 50ms
+//    }
 
-        int64_t current_time = player_get_time(player);
-
-        if (lyrics && current_lyric_index < lyric_count) {
-            while (current_lyric_index < lyric_count && current_time >= lyrics[current_lyric_index].time_ms) {
-                printf(">>> %s\n", lyrics[current_lyric_index].text);
-                current_lyric_index++;
-            }
-        }
-        
-        usleep(50000); // 50ms
-    }
-
-    printf("[Main Thread] Playback has stopped. Cleaning up.\n");
-    player_destroy(player);
-    free(lyrics);
-
-    printf("[Main Thread] Program finished.\n");
+//    printf("[Main Thread] Playback has stopped. Cleaning up.\n");
+////    player_destroy(player);
+//    player_destroy();
+//    free(lyrics);
+//
+//    printf("[Main Thread] Program finished.\n");
     return 0;
 }

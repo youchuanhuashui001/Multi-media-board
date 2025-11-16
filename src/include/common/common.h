@@ -44,5 +44,14 @@
 #define book_view_printf(fmt, args...) do {} while (0)
 #endif
 
+// ===== 字体管理 =====
+// 获取指定大小的 FreeType 字体
+lv_font_t* font_manager_get_freetype_font(int font_size);
+
+// 获取默认大小的 FreeType 字体（24pt）
+lv_font_t* font_manager_get_default_font(void);
+
+// 释放所有 FreeType 字体资源
+void font_manager_free_all_fonts(void);
 
 #endif

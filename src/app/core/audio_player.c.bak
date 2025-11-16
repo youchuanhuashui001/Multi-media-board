@@ -1,4 +1,0 @@
-
-//    mkfifo("./pipe", 0777);
-//
-//    lv_demo_music();

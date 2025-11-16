@@ -173,10 +173,8 @@ static void book_view_destroy(void)
 		free(g_book_ui.page_buffer);
 		g_book_ui.page_buffer = NULL;
 	}
-	if (g_book_ui.font) {
-		lv_freetype_font_delete(g_book_ui.font);
-		g_book_ui.font = NULL;
-	}
+	// 注意：不再在这里释放字体，由字体管理器统一管理
+	g_book_ui.font = NULL;
 
 	// 清理LVGL对象
 	if (book_view.screen != NULL) {
@@ -523,14 +521,10 @@ static void book_view_init(void)
 	                         LV_PART_MAIN);
 	lv_obj_move_background(book_view.screen);
 
-	// 2. 创建 FreeType 字体
-	//TODO: 考虑这里的字体文件路径
-	g_book_ui.font = lv_freetype_font_create("./resources/font/simsun.ttc",
-		LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
-		FONT_SIZE,
-		LV_FREETYPE_FONT_STYLE_NORMAL);
+	// 2. 获取 FreeType 字体（从字体管理器，默认大小 24pt）
+	g_book_ui.font = font_manager_get_default_font();
 	if(!g_book_ui.font) {
-		LV_LOG_ERROR("FreeType font create failed");
+		LV_LOG_ERROR("Failed to get FreeType font\n");
 		return;
 	}
 
