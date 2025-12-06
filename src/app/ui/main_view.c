@@ -5,7 +5,7 @@
 typedef struct {
 	lv_obj_t *background;     // 背景图片
 	struct {
-		lv_obj_t *music;      // 音乐按钮
+		lv_obj_t *audio;      // 音乐按钮
 		lv_obj_t *video;      // 视频按钮
 		lv_obj_t *photo;      // 图片按钮
 		lv_obj_t *book;       // 电子书按钮
@@ -75,9 +75,9 @@ static void button_event_handler(lv_event_t * e)
 
 	// 同时处理 CLICKED 和 SHORT_CLICKED 事件
 	if(code == LV_EVENT_CLICKED || code == LV_EVENT_SHORT_CLICKED) {
-		if(btn == g_main_ui.buttons.music) {
-			main_view_printf("checkpoint music_view\n");
-			view_manager_switch_to("music_view");
+		if(btn == g_main_ui.buttons.audio) {
+			main_view_printf("checkpoint audio_view\n");
+			view_manager_switch_to("audio_view");
 		}
 		else if(btn == g_main_ui.buttons.video) {
 			main_view_printf("checkpoint video_view\n");
@@ -152,14 +152,14 @@ static void main_view_init(void)
 
 	// 创建应用按钮
 	// 50*50
-	g_main_ui.buttons.music = create_app_button(main_view.screen, "A:./resources/image/icon/music_icon.png", "Music");
+	g_main_ui.buttons.audio = create_app_button(main_view.screen, "A:./resources/image/icon/audio_icon.png", "Audio");
 	g_main_ui.buttons.video = create_app_button(main_view.screen, "A:./resources/image/icon/video_icon.png", "Video");
 	g_main_ui.buttons.photo = create_app_button(main_view.screen, "A:./resources/image/icon/photo_icon.png", "Photo");
 	g_main_ui.buttons.book = create_app_button(main_view.screen, "A:./resources/image/icon/book_icon.png", "Book");
 	g_main_ui.buttons.setup = create_app_button(main_view.screen, "A:./resources/image/icon/setup_icon.png", "Setup");
 
 	// 布局应用按钮
-	lv_obj_align(g_main_ui.buttons.music, LV_ALIGN_TOP_LEFT, 50, 50);
+	lv_obj_align(g_main_ui.buttons.audio, LV_ALIGN_TOP_LEFT, 50, 50);
 	lv_obj_align(g_main_ui.buttons.video, LV_ALIGN_TOP_LEFT, 200, 50);
 	lv_obj_align(g_main_ui.buttons.photo, LV_ALIGN_TOP_LEFT, 350, 50);
 	lv_obj_align(g_main_ui.buttons.book, LV_ALIGN_TOP_LEFT, 50, 200);

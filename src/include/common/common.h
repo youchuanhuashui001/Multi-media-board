@@ -32,10 +32,10 @@
 #define main_view_printf(fmt, args...) do {} while (0)
 #endif
 
-#ifdef MUSIC_VIEW_DEBUG_ON
-#define music_view_printf(fmt, args...)   printf("MUSIC_VIEW_DEBUG: " fmt, ## args)
+#ifdef AUDIO_VIEW_DEBUG_ON
+#define audio_view_printf(fmt, args...)   printf("AUDIO_VIEW_DEBUG: " fmt, ## args)
 #else
-#define music_view_printf(fmt, args...) do {} while (0)
+#define audio_view_printf(fmt, args...) do {} while (0)
 #endif
 
 #ifdef BOOK_VIEW_DEBUG_ON
