@@ -580,8 +580,7 @@ void audio_engine_resume(void)
 	pthread_mutex_lock(&g_engine.status_mutex);
 	g_engine.status = PLAYER_STATUS_PLAYING;
 	if (g_engine.status_callback) {
-		g_engine.status_callback(PLAYER_STATUS_PLAYING,
-														 g_engine.callback_user_data);
+		g_engine.status_callback(PLAYER_STATUS_PLAYING, g_engine.callback_user_data);
 	}
 	pthread_mutex_unlock(&g_engine.status_mutex);
 }
