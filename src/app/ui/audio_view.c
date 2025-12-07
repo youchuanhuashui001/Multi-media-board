@@ -1,4 +1,5 @@
 #include "audio_view.h"
+#include "audio_library.h"
 #include "audio_manager.h"
 #include "common.h"
 #include "src/core/lv_obj.h"
@@ -11,38 +12,39 @@
 
 // ========== UI 元素定义 ==========
 typedef struct {
-	// 主屏幕在 view_management 中管理
-//	lv_obj_t *screen;     // 主屏幕
-	lv_obj_t *background; // 背景图片
+	// --- 主屏幕 ---
+	lv_obj_t *screen;
+	lv_obj_t *background;
 
-	// 歌曲信息
-	lv_obj_t *cover_img;    // 封面图
-	lv_obj_t *title_label;  // 歌名
-	lv_obj_t *artist_label; // 歌手
+	// --- 左侧面板：信息 ---
+	lv_obj_t *cover_img;         // 专辑封面
+	lv_obj_t *title_label;       // 歌名
+	lv_obj_t *artist_label;      // 歌手名
 
-	// 歌词
-	lv_obj_t *lyric_label; // 歌词显示
+	// --- 右侧面板：歌词 ---
+	lv_obj_t *lyric_cont;        // 歌词容器 (用于滚动/裁剪)
+	lv_obj_t *lyric_label;       // 显示歌词文本的标签
 
-	// 进度控制
-	lv_obj_t *progress_bar;       // 进度条
-	lv_obj_t *time_current_label; // 当前时间
-	lv_obj_t *time_total_label;   // 总时间
+	// --- 底部面板：控制 ---
+	lv_obj_t *progress_bar;      // 进度条 (Slider)
+	lv_obj_t *time_current_label;
+	lv_obj_t *time_total_label;
 
-	// 控制按钮
-	lv_obj_t *mode_btn;     // 模式按钮
-	lv_obj_t *prev_btn;     // 上一首
-	lv_obj_t *play_btn;     // 播放/暂停
-	lv_obj_t *next_btn;     // 下一首
-	lv_obj_t *playlist_btn; // 播放列表
+	lv_obj_t *mode_btn;          // 模式切换
+	lv_obj_t *prev_btn;
+	lv_obj_t *play_btn;          // 播放/暂停切换
+	lv_obj_t *next_btn;
+	lv_obj_t *playlist_btn;      // 打开播放列表弹窗
 
-	// 播放列表弹窗
-	lv_obj_t *playlist_popup; // 弹窗容器
-	lv_obj_t *playlist_table; // 列表
+	// --- 弹窗 ---
+	lv_obj_t *playlist_popup;    // 容器 (模态)
+	lv_obj_t *playlist_table;    // 歌曲列表表格
+	// lv_obj_t *playlist_close_btn; // Step 4 will add this
 
-	// 定时器
-	lv_timer_t *update_timer; // UI 更新定时器
-
-	// 字体
+	// --- 系统 ---
+	lv_timer_t *update_timer;    // 100ms UI 更新
+	
+	// --- 字体 ---
 	const lv_font_t *font_20;
 	const lv_font_t *font_24;
 	const lv_font_t *font_28;
@@ -73,8 +75,27 @@ static void update_play_button(void) {
 	}
 }
 
-// 更新歌曲信息显示
-static void update_song_info(void)
+// 更新模式按钮文本
+static void update_mode_btn_text(void)
+{
+	play_mode_t mode = audio_manager_get_mode();
+	lv_obj_t *label = lv_obj_get_child(g_audio_view.mode_btn, 0);
+
+	switch (mode) {
+		case PLAY_MODE_LOOP_LIST:
+			lv_label_set_text(label, "列表");
+			break;
+		case PLAY_MODE_LOOP_SINGLE:
+			lv_label_set_text(label, "单曲");
+			break;
+		case PLAY_MODE_SHUFFLE:
+			lv_label_set_text(label, "随机");
+			break;
+	}
+}
+
+// 初始化歌曲信息显示 (仅用于界面加载时)
+static void init_song_info(void)
 {
 	music_info_t *head = audio_manager_get_playlist_head();
 	if (!head) {
@@ -96,19 +117,43 @@ static void update_song_info(void)
 		// 使用文件路径加载封面图片
 		lv_obj_set_style_bg_img_src(g_audio_view.cover_img, head->cover_path, 0);
 		lv_obj_set_style_bg_image_opa(g_audio_view.cover_img, LV_OPA_COVER, 0);
-		printf("Loading cover: %s\n", head->cover_path);
 	} else {
 		// 没有封面时显示默认颜色
 		lv_obj_set_style_bg_img_src(g_audio_view.cover_img, AUDIO_COVER_DEFAULT, 0);
 		lv_obj_set_style_bg_image_opa(g_audio_view.cover_img, LV_OPA_COVER, 0);
 	}
 
-	// 更新歌词显示 (显示7行)
-	if (head->lyrics) {
-		char lrc_buf[1024];
-		snprintf(lrc_buf, sizeof(lrc_buf), "%s\n%s\n%s\n%s\n%s\n%s\n%s\n", head->lyrics->lines[0].text, \
-			head->lyrics->lines[1].text, head->lyrics->lines[2].text, head->lyrics->lines[3].text, \
-			head->lyrics->lines[4].text, head->lyrics->lines[5].text, head->lyrics->lines[6].text);
+	// 更新歌词显示 (显示前7行，第1行高亮)
+	if (head->lyrics && head->lyrics->count > 0) {
+		char lrc_buf[1024] = "";
+		char *p = lrc_buf;
+		int remaining = sizeof(lrc_buf);
+
+		for (int i = 0; i < 7; i++) {
+			if (i < head->lyrics->count && head->lyrics->lines[i].text) {
+				// 第0行高亮 (#0000ff), 其他行黑色 (#000000)
+				const char *color = (i == 0) ? "#0000ff " : "#000000 ";
+
+				int written = snprintf(p, remaining, "%s%s%s#", 
+				                       color,
+				                       head->lyrics->lines[i].text,
+				                       (i < 6) ? "\n" : "");
+
+				if (written > 0 && written < remaining) {
+					p += written;
+					remaining -= written;
+				} else {
+					break;
+				}
+			} else {
+				// 填充空行
+				int written = snprintf(p, remaining, "\n");
+				if (written > 0 && written < remaining) {
+					p += written;
+					remaining -= written;
+				}
+			}
+		}
 		lv_label_set_text(g_audio_view.lyric_label, lrc_buf);
 	} else {
 		lv_label_set_text(g_audio_view.lyric_label, "暂无歌词");
@@ -151,23 +196,28 @@ static void update_progress(void)
 static void update_lyrics(void)
 {
 	music_info_t *info = audio_manager_get_current_info();
-	if (!info || !info->lyrics) {
+	if (!info || !info->lyrics || info->lyrics->count == 0) {
+		lv_label_set_text(g_audio_view.lyric_label, "暂无歌词");
 		return;
 	}
 
 	int64_t pos = audio_manager_get_position();
 	lyric_info_t *lyrics = info->lyrics;
 
-	if (lyrics->count == 0) {
-		return;
-	}
-
-	// 使用静态变量记住上次的索引，避免每次从头查找
-	// TODO: 切歌时没有重置
+	// 状态管理
+	static music_info_t *last_music_ptr = NULL;
 	static int last_index = 0;
-	int current_index = last_index;
+	static int64_t last_pos = 0;
 
-	// 从上次位置开始查找当前歌词
+	// 切歌或后退 seek 检测：重置索引
+	if (info != last_music_ptr || pos < last_pos) {
+		last_index = 0;
+		last_music_ptr = info;
+	}
+	last_pos = pos;
+
+	// 查找当前行 (从上次位置开始)
+	int current_index = last_index;
 	for (int i = last_index; i < lyrics->count; i++) {
 		if (lyrics->lines[i].time_ms <= pos) {
 			current_index = i;
@@ -177,34 +227,80 @@ static void update_lyrics(void)
 	}
 	last_index = current_index;
 
-	// 计算显示窗口：前3行 + 当前行 + 后3行 = 7行
+	// 构建显示窗口：前3行 + 当前行 + 后3行 = 7行
 	int start = current_index - 3;
 	int end = current_index + 3;
 
-	// 简单的边界处理
-	if (start < 0) start = 0;
-	if (end >= lyrics->count) end = lyrics->count - 1;
-
-	// 构建歌词文本
-	char lrc_buf[1024] = "";
+	char lrc_buf[2048] = "";
 	char *p = lrc_buf;
 	int remaining = sizeof(lrc_buf);
 
 	for (int i = start; i <= end; i++) {
-		if (lyrics->lines[i].text) {
-			int written = snprintf(p, remaining, "%s%s", 
+		if (i >= 0 && i < lyrics->count && lyrics->lines[i].text) {
+			// 高亮当前行 (#0000ff), 其他行黑色 (#000000)
+			const char *color = (i == current_index) ? "#0000ff " : "#000000 ";
+
+			int written = snprintf(p, remaining, "%s%s%s#", 
+			                       color,
 			                       lyrics->lines[i].text,
 			                       (i < end) ? "\n" : "");
+
 			if (written > 0 && written < remaining) {
 				p += written;
 				remaining -= written;
 			} else {
-				break;  // 缓冲区不足
+				break;
+			}
+		} else {
+			// 填充空行以保持垂直居中
+			int written = snprintf(p, remaining, "\n");
+			if (written > 0 && written < remaining) {
+				p += written;
+				remaining -= written;
 			}
 		}
 	}
 
 	lv_label_set_text(g_audio_view.lyric_label, lrc_buf);
+}
+
+// 更新歌曲元信息:歌名、歌手、封面图
+static void update_mete_data(void)
+{
+	static music_info_t *last_info = NULL;
+	music_info_t *info = audio_manager_get_current_info();
+
+	if (last_info != info) {
+
+		last_info = info;
+
+		if (!info) {
+			lv_label_set_text(g_audio_view.title_label, "无歌曲");
+			lv_label_set_text(g_audio_view.artist_label, "");
+			lv_label_set_text(g_audio_view.lyric_label, "");
+
+			// 清除封面（显示默认背景）
+			lv_obj_set_style_bg_img_src(g_audio_view.cover_img, AUDIO_COVER_DEFAULT, 0);
+			lv_obj_set_style_bg_image_opa(g_audio_view.cover_img, LV_OPA_COVER, 0);
+			return;
+		}
+
+		lv_label_set_text(g_audio_view.title_label, info->title ? info->title : "未知");
+		lv_label_set_text(g_audio_view.artist_label, info->artist ? info->artist : "未知歌手");
+
+		// 更新封面图
+		if (info->cover_path) {
+			// 使用文件路径加载封面图片
+			lv_obj_set_style_bg_img_src(g_audio_view.cover_img, info->cover_path, 0);
+			lv_obj_set_style_bg_image_opa(g_audio_view.cover_img, LV_OPA_COVER, 0);
+		} else {
+			// 没有封面时显示默认颜色
+			lv_obj_set_style_bg_img_src(g_audio_view.cover_img, AUDIO_COVER_DEFAULT, 0);
+			lv_obj_set_style_bg_image_opa(g_audio_view.cover_img, LV_OPA_COVER, 0);
+		}
+	}
+
+
 }
 
 // ========== 事件回调 ==========
@@ -240,19 +336,7 @@ static void mode_btn_event_cb(lv_event_t *e)
 		play_mode_t current_mode = audio_manager_get_mode();
 		play_mode_t new_mode = (current_mode + 1) % 3;
 		audio_manager_set_mode(new_mode);
-
-		lv_obj_t *label = lv_obj_get_child(g_audio_view.mode_btn, 0);
-		switch (new_mode) {
-		case PLAY_MODE_LOOP_LIST:
-			lv_label_set_text(label, "列表");
-			break;
-		case PLAY_MODE_LOOP_SINGLE:
-			lv_label_set_text(label, "单曲");
-			break;
-		case PLAY_MODE_SHUFFLE:
-			lv_label_set_text(label, "随机");
-			break;
-		}
+		update_mode_btn_text();
 	}
 }
 
@@ -312,6 +396,7 @@ static void update_timer_cb(lv_timer_t *timer)
 	player_status_t status = audio_manager_get_status();
 
 	if (status == PLAYER_STATUS_PLAYING) {
+		update_mete_data();
 		update_progress();
 		update_lyrics();
 	}
@@ -385,59 +470,62 @@ static void create_playlist_popup(void)
 
 // ========== 公开接口实现 ==========
 
-void audio_view_init(void)
+// ========== 组件创建 (Step 1 Layout) ==========
+
+static void create_left_panel(void)
 {
-	// 创建主屏幕
-	audio_view.screen = lv_obj_create(lv_screen_active());
-	lv_obj_set_size(audio_view.screen, LV_PCT(100), LV_PCT(100));
-	lv_obj_set_style_border_width(audio_view.screen, 0, 0);
-	lv_obj_set_style_bg_opa(audio_view.screen, LV_OPA_0, 0);
-	lv_obj_set_style_pad_all(audio_view.screen, 0, 0);
-
-	// 加载字体
-	g_audio_view.font_20 = font_manager_get_freetype_font(20);
-	g_audio_view.font_24 = font_manager_get_freetype_font(24);
-	g_audio_view.font_28 = font_manager_get_freetype_font(28);
-
-	if (!g_audio_view.font_20 || !g_audio_view.font_24 || !g_audio_view.font_28) {
-		printf("Error: Failed to load FreeType fonts\n");
-		return ;
-	}
-
-	// ===== 左侧：封面和歌曲信息 =====
-
-	// 封面图 (占位符)
+	// 封面图 (300x300, pos: 50,50)
 	g_audio_view.cover_img = lv_obj_create(audio_view.screen);
 	lv_obj_set_size(g_audio_view.cover_img, 300, 300);
 	lv_obj_set_pos(g_audio_view.cover_img, 50, 50);
 	lv_obj_set_style_bg_color(g_audio_view.cover_img, lv_color_make(60, 60, 60), 0);
+	lv_obj_set_style_bg_img_src(g_audio_view.cover_img, AUDIO_COVER_DEFAULT, 0);
 
-	// 歌名
+	// 歌名 (pos: 50,370)
 	g_audio_view.title_label = lv_label_create(audio_view.screen);
 	lv_obj_set_style_text_font(g_audio_view.title_label, g_audio_view.font_28, 0);
 	lv_obj_set_pos(g_audio_view.title_label, 50, 370);
 	lv_obj_set_width(g_audio_view.title_label, 300);
+	lv_label_set_long_mode(g_audio_view.title_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
 	lv_label_set_text(g_audio_view.title_label, "歌名");
 
-	// 歌手
+	// 歌手 (pos: 50,415)
 	g_audio_view.artist_label = lv_label_create(audio_view.screen);
 	lv_obj_set_style_text_font(g_audio_view.artist_label, g_audio_view.font_20, 0);
 	lv_obj_set_style_text_color(g_audio_view.artist_label, lv_color_make(180, 180, 180), 0);
 	lv_obj_set_pos(g_audio_view.artist_label, 50, 415);
 	lv_label_set_text(g_audio_view.artist_label, "歌手");
+}
 
-	// ===== 右侧：歌词和控制 =====
+static void create_right_panel(void)
+{
+	// 歌词容器 (500x430, pos: 450,0)
+	g_audio_view.lyric_cont = lv_obj_create(audio_view.screen);
+	lv_obj_set_size(g_audio_view.lyric_cont, 500, 450);
+	lv_obj_set_pos(g_audio_view.lyric_cont, 450, 0);
+	lv_obj_set_style_bg_opa(g_audio_view.lyric_cont, LV_OPA_0, 0); // 透明背景
+	lv_obj_set_style_border_width(g_audio_view.lyric_cont, 0, 0);
 
-	// 歌词区域
-	g_audio_view.lyric_label = lv_label_create(audio_view.screen);
+	// 设置垂直滚动
+	lv_obj_set_scroll_dir(g_audio_view.lyric_cont, LV_DIR_VER);
+	lv_obj_set_scrollbar_mode(g_audio_view.lyric_cont, LV_SCROLLBAR_MODE_OFF); // 隐藏滚动条
+	// TODO: 后续可以通过上下滑动歌词 seek 到音乐对应的位置
+
+	// 歌词标签 (Inside container)
+	g_audio_view.lyric_label = lv_label_create(g_audio_view.lyric_cont);
+	lv_obj_set_width(g_audio_view.lyric_label, 460); // 留出滚动条空间
 	lv_obj_set_style_text_font(g_audio_view.lyric_label, g_audio_view.font_24, 0);
-	lv_obj_set_size(g_audio_view.lyric_label, 500, 400);
-	lv_obj_set_pos(g_audio_view.lyric_label, 450, 100);
 	lv_obj_set_style_text_align(g_audio_view.lyric_label, LV_TEXT_ALIGN_CENTER, 0);
+	lv_obj_set_style_text_line_space(g_audio_view.lyric_label, 10, 0); // 增加行间距
 	lv_label_set_long_mode(g_audio_view.lyric_label, LV_LABEL_LONG_WRAP);
-	lv_label_set_text(g_audio_view.lyric_label, "");
+	lv_label_set_recolor(g_audio_view.lyric_label, true); // 开启颜色解析
+	lv_obj_center(g_audio_view.lyric_label);
+	lv_label_set_text(g_audio_view.lyric_label, "暂无歌词");
+}
 
-	// 进度条 (使用 slider 支持用户拖动 seek)
+static void create_controls(void)
+{
+	// 进度条 (pos: 450,460)
 	g_audio_view.progress_bar = lv_slider_create(audio_view.screen);
 	lv_obj_set_size(g_audio_view.progress_bar, 500, 10);
 	lv_obj_set_pos(g_audio_view.progress_bar, 450, 460);
@@ -454,14 +542,13 @@ void audio_view_init(void)
 	lv_obj_set_pos(g_audio_view.time_total_label, 960, 460);
 	lv_label_set_text(g_audio_view.time_total_label, "00:00");
 
-	// 控制按钮 (底部居中排列)
+	// 按钮区域 (Bottom aligned)
 	int btn_y = 510;
-	int btn_spacing = 60;
-	int btn_start_x = 500;
+	int btn_spacing = 60; // Reduced spacing
+	int btn_start_x = 550;
 
 	// 模式按钮
 	g_audio_view.mode_btn = lv_button_create(audio_view.screen);
-	// TODO: 换成 icon
 	lv_obj_set_style_text_font(g_audio_view.mode_btn, g_audio_view.font_20, 0);
 	lv_obj_set_size(g_audio_view.mode_btn, 50, 50);
 	lv_obj_set_pos(g_audio_view.mode_btn, btn_start_x, btn_y);
@@ -507,23 +594,49 @@ void audio_view_init(void)
 	lv_obj_set_style_text_font(list_label, g_audio_view.font_20, 0);
 	lv_label_set_text(list_label, "播放列表");
 	lv_obj_center(list_label);
+}
+
+void audio_view_init(void)
+{
+	// 创建主屏幕
+	audio_view.screen = lv_obj_create(lv_screen_active());
+	lv_obj_set_size(audio_view.screen, LV_PCT(100), LV_PCT(100));
+	lv_obj_set_style_border_width(audio_view.screen, 0, 0);
+	lv_obj_set_style_bg_opa(audio_view.screen, LV_OPA_0, 0);
+	//TODO:考虑背景图片
+//	lv_obj_set_style_bg_color(audio_view.screen, lv_color_black(), 0); // Black background
+	lv_obj_set_style_pad_all(audio_view.screen, 0, 0);
+
+	// 加载字体
+	g_audio_view.font_20 = font_manager_get_freetype_font(20);
+	g_audio_view.font_24 = font_manager_get_freetype_font(24);
+	g_audio_view.font_28 = font_manager_get_freetype_font(28);
+
+	if (!g_audio_view.font_20 || !g_audio_view.font_24 || !g_audio_view.font_28) {
+		printf("Error: Failed to load FreeType fonts\n");
+		return ;
+	}
 
 	// 初始化 audio manager
 	audio_manager_init();
-
-	// 默认扫描目录
 	audio_manager_scan_dir(AUDIO_LIBRARY_DIR);
 
-	// 创建播放列表弹窗
+	// 创建 UI 组件 (Split Layout)
+	create_left_panel();
+	create_right_panel();
+	create_controls();
+
+	// 创建播放列表弹窗 (Keep existing logic for now, just ensure it's created)
 	create_playlist_popup();
 
-	// 更新初始显示(默认显示扫描到的第一首歌曲)
-	update_song_info();
+	// 更新初始显示
+	init_song_info();
+	update_mode_btn_text();
 
-	// 创建定时器 (每 100ms 更新)
+	// 创建定时器
 	g_audio_view.update_timer = lv_timer_create(update_timer_cb, 100, NULL);
 
-	printf("Audio View initialized\n");
+	printf("Audio View initialized (Step 2 Icons)\n");
 }
 
 void audio_view_show(void) {
