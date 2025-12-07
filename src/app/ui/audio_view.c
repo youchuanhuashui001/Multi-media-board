@@ -282,22 +282,22 @@ static void playlist_btn_event_cb(lv_event_t *e) {
 static void playlist_item_event_cb(lv_event_t *e)
 {
 	lv_event_code_t code = lv_event_get_code(e);
-	
+
 	// LVGL table 使用 VALUE_CHANGED 事件表示单元格被点击/选中
 	if (code == LV_EVENT_VALUE_CHANGED) {
 		lv_obj_t *table = lv_event_get_target(e);
 		uint32_t row, col;
 		lv_table_get_selected_cell(table, &row, &col);
-		
+
 		// 检查是否获取到有效的行号
 		// 注意：第 0 行是表头，实际歌曲从第 1 行开始
 		if (row != LV_TABLE_CELL_NONE && row > 0) {
 			int song_index = row - 1;  // 转换为歌曲索引 (0-based)
 			printf("playlist_item_event_cb: row = %u, song_index = %d\n", row, song_index);
-			
+
 			// TODO:播放选中的歌曲
 			//audio_manager_play_at_index(song_index);
-			
+
 			// 关闭弹窗
 			if (g_audio_view.playlist_popup) {
 				lv_obj_add_flag(g_audio_view.playlist_popup, LV_OBJ_FLAG_HIDDEN);
