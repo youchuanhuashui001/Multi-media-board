@@ -1,4 +1,5 @@
 #include "audio_engine.h"
+#include "common.h"
 #include <alsa/asoundlib.h>
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -19,82 +20,87 @@
 
 // ========== 环形缓冲区 ==========
 typedef struct {
-	uint8_t data[RING_BUFFER_SIZE];
-	int read_pos;
-	int write_pos;
-	int available;
-	pthread_mutex_t mutex;
-	pthread_cond_t cond_not_empty;
-	pthread_cond_t cond_not_full;
+	uint8_t data[RING_BUFFER_SIZE]; // 数据存储区
+	int read_pos;                   // 读取位置索引
+	int write_pos;                  // 写入位置索引
+	int available;                  // 当前可读数据量(字节)
+	pthread_mutex_t mutex;          // 保护缓冲区的互斥锁
+	pthread_cond_t cond_not_empty;  // 条件变量：缓冲区非空 (唤醒消费者)
+	pthread_cond_t cond_not_full;   // 条件变量：缓冲区非满 (唤醒生产者)
 } ring_buffer_t;
 
 // ========== 播放引擎状态 ==========
 typedef struct {
-	// 文件信息
-	char file_path[1024];
-	int64_t duration_ms;
-	int64_t position_ms;
+	// --- 文件信息 ---
+	char file_path[1024]; // 当前播放文件路径
+	int64_t duration_ms;  // 总时长 (毫秒)
+	int64_t position_ms;  // 当前播放位置 (毫秒)
 
-	// 状态
-	player_status_t status;
-	pthread_mutex_t status_mutex;
+	// --- 状态管理 ---
+	player_status_t status;       // 当前播放器状态
+	pthread_mutex_t status_mutex; // 保护状态和位置信息的互斥锁
 
-	// 线程
-	pthread_t decode_thread;
-	pthread_t playback_thread;
-	int thread_running;
+	// --- 线程管理 ---
+	pthread_t decode_thread;   // 解码线程 (生产者)
+	pthread_t playback_thread; // 播放线程 (消费者)
+	int thread_running;        // 线程运行标志
 
-	// 控制标志
-	volatile int should_stop;
-	volatile int is_paused;
-	volatile int seek_request;
-	volatile int64_t seek_target_ms;
-	volatile int decode_finished;  // 解码完成标志
+	// --- 控制标志 (volatile 确保线程可见性) ---
+	volatile int should_stop;    // 停止信号：通知线程退出
+	volatile int is_paused;      // 暂停信号：通知线程暂停
+	volatile int seek_request;        // 跳转请求标志 (主线程设置，解码线程清除)
+	volatile int seek_sequence;       // seek 序列号 (每次 seek 递增，播放线程对比)
+	volatile int64_t seek_target_ms;  // 跳转目标时间 (毫秒)
+	volatile int decode_finished;     // 解码完成标志
+	volatile int alsa_released;       // ALSA 已释放标志 (播放线程设置，新播放前等待)
 
-	// 暂停控制
-	pthread_mutex_t pause_mutex;
-	pthread_cond_t pause_cond;
+	// --- 暂停同步 ---
+	pthread_mutex_t pause_mutex; // 暂停锁
+	pthread_cond_t pause_cond;   // 暂停条件变量 (用于挂起和唤醒线程)
 
-	// 精确进度计算
-	int64_t start_pts_ms;           // 起始 PTS 时间(ms)
-	volatile int64_t bytes_played;  // 累计已播放的 PCM 字节数
-	int first_frame_received;       // 是否已接收第一帧
+	// --- 精确进度计算 ---
+	int64_t start_pts_ms;           // 起始帧的 PTS 时间戳 (毫秒)
+	volatile int64_t bytes_played;  // 已写入 ALSA 的 PCM 字节总数
+	int first_frame_received;       // 标记是否已接收到第一帧解码数据
 
-	// 环形缓冲区
-	ring_buffer_t ring_buffer;
+	// --- 数据缓冲 ---
+	ring_buffer_t ring_buffer; // 环形缓冲区实例
 
-	// 回调
-	engine_status_cb_t status_callback;
-	void *callback_user_data;
-
-	// ALSA 句柄
-	snd_pcm_t *alsa_handle;
+	// --- 回调通知 ---
+	engine_status_cb_t status_callback; // 状态变更回调函数
+	void *callback_user_data;           // 回调用户数据
 } audio_engine_t;
 
 static audio_engine_t g_engine = {0};
 
 // ========== 环形缓冲区函数 ==========
 
-static void ring_buffer_init(ring_buffer_t *rb) {
+static void ring_buffer_init(ring_buffer_t *rb)
+{
 	memset(rb, 0, sizeof(ring_buffer_t));
 	pthread_mutex_init(&rb->mutex, NULL);
 	pthread_cond_init(&rb->cond_not_empty, NULL);
 	pthread_cond_init(&rb->cond_not_full, NULL);
 }
 
-static void ring_buffer_destroy(ring_buffer_t *rb) {
+static void ring_buffer_destroy(ring_buffer_t *rb)
+{
 	pthread_mutex_destroy(&rb->mutex);
 	pthread_cond_destroy(&rb->cond_not_empty);
 	pthread_cond_destroy(&rb->cond_not_full);
 }
 
-static int ring_buffer_write(ring_buffer_t *rb, const uint8_t *data, int size) {
+static int ring_buffer_write(ring_buffer_t *rb, const uint8_t *data, int size)
+{
 	pthread_mutex_lock(&rb->mutex);
 
-	while (rb->available + size > RING_BUFFER_SIZE && !g_engine.should_stop) {
+	// ringbuffer 中的数据 + 要写的数据之和，不允许大于 RING_BUFFER_SIZE
+	// 同时检查停止标志
+	while ((rb->available + size) > RING_BUFFER_SIZE && !g_engine.should_stop) {
 		pthread_cond_wait(&rb->cond_not_full, &rb->mutex);
 	}
 
+	// 检查是否需要退出
 	if (g_engine.should_stop) {
 		pthread_mutex_unlock(&rb->mutex);
 		return 0;
@@ -103,37 +109,51 @@ static int ring_buffer_write(ring_buffer_t *rb, const uint8_t *data, int size) {
 	int to_write = size;
 	int part1 = RING_BUFFER_SIZE - rb->write_pos;
 
+	// 这里在考虑绕圈的问题:
+	// 1. 如果要写的数据小于等于 ringbuffer 的剩余空间，直接写入
+	// 2. 如果要写的数据大于 ringbuffer 的剩余空间，分两段写入
 	if (to_write <= part1) {
 		memcpy(rb->data + rb->write_pos, data, to_write);
 		rb->write_pos = (rb->write_pos + to_write) % RING_BUFFER_SIZE;
 	} else {
 		memcpy(rb->data + rb->write_pos, data, part1);
 		memcpy(rb->data, data + part1, to_write - part1);
+		// 写指针绕圈，要写的总长度 - 尾巴的部分，剩余的部分都是从 0 开始写的，
+		// 所以这里计算没问题
 		rb->write_pos = to_write - part1;
 	}
 
+	// 更新可用数据量，not_empty 条件变量会被唤醒
 	rb->available += to_write;
 	pthread_cond_signal(&rb->cond_not_empty);
+
 	pthread_mutex_unlock(&rb->mutex);
 
 	return to_write;
 }
 
-static int ring_buffer_read(ring_buffer_t *rb, uint8_t *data, int size) {
+static int ring_buffer_read(ring_buffer_t *rb, uint8_t *data, int size)
+{
 	pthread_mutex_lock(&rb->mutex);
 
-	while (rb->available < size && !g_engine.should_stop && !g_engine.decode_finished) {
+	// 如果 ringbuffer 中可用的数据小于要读取的数据，就等待；同时检查停止标志
+	while (rb->available < size && !g_engine.should_stop) {
 		pthread_cond_wait(&rb->cond_not_empty, &rb->mutex);
 	}
 
-	if (rb->available == 0 && (g_engine.should_stop || g_engine.decode_finished)) {
+	// 检查是否需要退出
+	if (g_engine.should_stop) {
 		pthread_mutex_unlock(&rb->mutex);
 		return 0;
 	}
 
-	int to_read = (rb->available < size) ? rb->available : size;
+	// 要读的数据量，取 ringbuffer 中可用的数据和要读取的数据的最小值
+	// 这里其实和上面的逻辑不一致了，因为上面已经判断了 rb->available < size
+	// 这里必然 rb->available >= size，能够读走所有数据
+	int to_read = size;
 	int part1 = RING_BUFFER_SIZE - rb->read_pos;
 
+	// 考虑绕圈的问题
 	if (to_read <= part1) {
 		memcpy(data, rb->data + rb->read_pos, to_read);
 		rb->read_pos = (rb->read_pos + to_read) % RING_BUFFER_SIZE;
@@ -143,24 +163,29 @@ static int ring_buffer_read(ring_buffer_t *rb, uint8_t *data, int size) {
 		rb->read_pos = to_read - part1;
 	}
 
+	// 更新可用数据量，not_full 条件变量会被唤醒
 	rb->available -= to_read;
 	pthread_cond_signal(&rb->cond_not_full);
+
 	pthread_mutex_unlock(&rb->mutex);
 
 	return to_read;
 }
 
-static void ring_buffer_clear(ring_buffer_t *rb) {
+static void ring_buffer_clear(ring_buffer_t *rb)
+{
 	pthread_mutex_lock(&rb->mutex);
 	rb->read_pos = 0;
 	rb->write_pos = 0;
 	rb->available = 0;
+	pthread_cond_signal(&rb->cond_not_empty);
+	pthread_cond_signal(&rb->cond_not_full);
 	pthread_mutex_unlock(&rb->mutex);
 }
 
 // ========== ALSA 初始化 ==========
-
-static int alsa_init(snd_pcm_t **handle) {
+static int alsa_init(snd_pcm_t **handle)
+{
 	int err;
 	snd_pcm_hw_params_t *hw_params;
 
@@ -172,12 +197,10 @@ static int alsa_init(snd_pcm_t **handle) {
 
 	snd_pcm_hw_params_malloc(&hw_params);
 	snd_pcm_hw_params_any(*handle, hw_params);
-	snd_pcm_hw_params_set_access(*handle, hw_params,
-															 SND_PCM_ACCESS_RW_INTERLEAVED);
+	snd_pcm_hw_params_set_access(*handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED);
 	snd_pcm_hw_params_set_format(*handle, hw_params, TARGET_FORMAT);
 	snd_pcm_hw_params_set_channels(*handle, hw_params, TARGET_CHANNELS);
-	snd_pcm_hw_params_set_rate_near(*handle, hw_params,
-																	&(unsigned int){TARGET_SAMPLE_RATE}, 0);
+	snd_pcm_hw_params_set_rate_near(*handle, hw_params, &(unsigned int){TARGET_SAMPLE_RATE}, 0);
 
 	err = snd_pcm_hw_params(*handle, hw_params);
 	snd_pcm_hw_params_free(hw_params);
@@ -193,7 +216,6 @@ static int alsa_init(snd_pcm_t **handle) {
 }
 
 // ========== 解码线程 ==========
-
 static void *decode_thread_func(void *arg)
 {
 	AVFormatContext *fmt_ctx = NULL;
@@ -237,8 +259,7 @@ static void *decode_thread_func(void *arg)
 	}
 
 	codec_ctx = avcodec_alloc_context3(codec);
-	avcodec_parameters_to_context(codec_ctx,
-																fmt_ctx->streams[audio_stream_index]->codecpar);
+	avcodec_parameters_to_context(codec_ctx, fmt_ctx->streams[audio_stream_index]->codecpar);
 
 	if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
 		fprintf(stderr, "Could not open codec\n");
@@ -271,7 +292,10 @@ static void *decode_thread_func(void *arg)
 	while (!g_engine.should_stop) {
 		// 处理 Seek 请求
 		if (g_engine.seek_request) {
-			int64_t seek_ts = g_engine.seek_target_ms * 1000;
+			// 将毫秒转换为流的 time_base 单位
+			AVRational time_base = fmt_ctx->streams[audio_stream_index]->time_base;
+			int64_t seek_ts = av_rescale_q(g_engine.seek_target_ms, (AVRational){1, 1000}, time_base);
+
 			av_seek_frame(fmt_ctx, audio_stream_index, seek_ts, AVSEEK_FLAG_BACKWARD);
 			avcodec_flush_buffers(codec_ctx);
 			ring_buffer_clear(&g_engine.ring_buffer);
@@ -282,16 +306,16 @@ static void *decode_thread_func(void *arg)
 			// 重置进度追踪状态
 			g_engine.bytes_played = 0;
 			g_engine.first_frame_received = 0;
+			// 递增序列号，通知播放线程发生了 seek
+			g_engine.seek_sequence++;
 			pthread_mutex_unlock(&g_engine.status_mutex);
 		}
 
 		// 解码线程不处理暂停,继续解码直到 ringbuffer 填满
 
 		if (av_read_frame(fmt_ctx, packet) < 0) {
-			// 文件读取结束，设置解码完成标志并唤醒播放线程
-			//TODO: 考虑下这里，应该不用唤醒播放线程
+			// 文件读取结束，设置解码完成标志
 			g_engine.decode_finished = 1;
-			pthread_cond_signal(&g_engine.ring_buffer.cond_not_empty);
 			break;
 		}
 
@@ -309,17 +333,13 @@ static void *decode_thread_func(void *arg)
 			// 记录第一帧的 PTS 作为起始时间
 			if (!g_engine.first_frame_received) {
 				pthread_mutex_lock(&g_engine.status_mutex);
-				g_engine.start_pts_ms =
-						frame->pts * av_q2d(fmt_ctx->streams[audio_stream_index]->time_base) *
-						1000;
+				g_engine.start_pts_ms = frame->pts * av_q2d(fmt_ctx->streams[audio_stream_index]->time_base) * 1000;
 				g_engine.first_frame_received = 1;
 				pthread_mutex_unlock(&g_engine.status_mutex);
 			}
 
 			// 重采样
-			int out_samples =
-					swr_convert(swr_ctx, &pcm_buffer, frame->nb_samples,
-											(const uint8_t **)frame->data, frame->nb_samples);
+			int out_samples = swr_convert(swr_ctx, &pcm_buffer, frame->nb_samples, (const uint8_t **)frame->data, frame->nb_samples);
 
 			int pcm_size = out_samples * TARGET_CHANNELS * 2; // S16LE
 
@@ -351,7 +371,8 @@ cleanup:
 
 // ========== 播放线程 ==========
 
-static void *playback_thread_func(void *arg) {
+static void *playback_thread_func(void *arg)
+{
 	uint8_t buffer[4096];
 	snd_pcm_sframes_t frames;
 	snd_pcm_t *alsa_handle = NULL;
@@ -361,6 +382,9 @@ static void *playback_thread_func(void *arg) {
 		fprintf(stderr, "Playback thread: ALSA init failed\n");
 		return NULL;
 	}
+
+	// seek 序列号，在循环开始前初始化为当前值
+	int last_seek_seq = g_engine.seek_sequence;
 
 	while (!g_engine.should_stop) {
 		// 暂停处理:使用条件变量等待,释放 CPU
@@ -388,9 +412,20 @@ static void *playback_thread_func(void *arg) {
 			}
 		}
 
+		// seek 处理：对比序列号，检测是否发生了 seek
+		// 注意：last_seek_seq 在循环外初始化，不能用 static
+		if (g_engine.seek_sequence != last_seek_seq) {
+			last_seek_seq = g_engine.seek_sequence;
+			// 丢弃 ALSA 缓冲区中的旧数据
+			snd_pcm_drop(alsa_handle);
+			snd_pcm_prepare(alsa_handle);
+			continue;  // 重新开始循环，读取新位置的数据
+		}
+
 		// 从环形缓冲区读取
 		int bytes_read = ring_buffer_read(&g_engine.ring_buffer, buffer, sizeof(buffer));
 		if (bytes_read == 0) {
+			audio_view_printf("Playback thread: Ring buffer empty\n");
 			break;
 		}
 
@@ -431,12 +466,14 @@ static void *playback_thread_func(void *arg) {
 		}
 	}
 
-	// 释放线程独立的 ALSA 资源（必须在回调之前释放，否则新线程无法打开设备）
+	// 释放线程独立的 ALSA 资源
 	if (alsa_handle) {
-		snd_pcm_drain(alsa_handle);
+		snd_pcm_drop(alsa_handle);   // 丢弃缓冲区，比 drain 更快
 		snd_pcm_close(alsa_handle);
 		alsa_handle = NULL;
 	}
+	// 标记 ALSA 已释放，允许新播放线程创建
+	g_engine.alsa_released = 1;
 
 	// 歌曲自然播放完成（非手动停止），上报 FINISHED 状态
 	if (!g_engine.should_stop && g_engine.decode_finished) {
@@ -473,9 +510,13 @@ int audio_engine_init(void)
 // 每次播放创建新线程，线程使用 detach 模式自动回收
 int audio_engine_play(const char *file_path)
 {
-	// 停止当前播放（不等待，只设置标志）
+	// 停止当前播放并等待 ALSA 释放
 	if (g_engine.thread_running) {
 		audio_engine_stop();
+		// 等待播放线程释放 ALSA 资源
+		while (!g_engine.alsa_released) {
+			usleep(1000);  // 1ms
+		}
 	}
 
 	// 重置状态
@@ -490,6 +531,7 @@ int audio_engine_play(const char *file_path)
 	g_engine.bytes_played = 0;
 	g_engine.first_frame_received = 0;
 	g_engine.start_pts_ms = 0;
+	g_engine.alsa_released = 0;  // 重置 ALSA 释放标志
 
 	ring_buffer_clear(&g_engine.ring_buffer);
 
@@ -544,7 +586,10 @@ void audio_engine_resume(void)
 	pthread_mutex_unlock(&g_engine.status_mutex);
 }
 
-void audio_engine_stop(void) {
+// 功能1：退出播放的时候，相当于突然的停止播放，需要处理解码和播放线程
+// 功能2：播放完歌曲后，先清掉相关的资源，再开始下一次播放
+void audio_engine_stop(void)
+{
 	g_engine.should_stop = 1;
 
 	// 唤醒所有等待的线程，让它们检测 should_stop 并自行退出

@@ -149,14 +149,11 @@ int audio_manager_play(void)
 {
 	player_status_t status = audio_engine_get_status();
 
+	// 刚启动时是 STOPPED 状态，播放第一首音乐
+	// 然后状态就只会在 PLAYING 和 PAUSED 之间切换
 	switch (status) {
 	case PLAYER_STATUS_STOPPED:
-		// 从头播放（或播放第一首）
-		if (g_manager.current_index < 0 && g_manager.playlist_count > 0) {
-			return audio_manager_play_at_index(0);
-		} else if (g_manager.current_music) {
-			return audio_engine_play(g_manager.current_music->file_path);
-		}
+		return audio_manager_play_at_index(0);
 		break;
 
 	case PLAYER_STATUS_PLAYING:
@@ -208,6 +205,19 @@ int audio_manager_play_prev(void)
 	return audio_manager_play_at_index(prev_index);
 }
 
+// 百分比 seek (0-100)
+int audio_manager_seek_percent(int percent)
+{
+	if (percent < 0) percent = 0;
+	if (percent > 100) percent = 100;
+
+	int64_t duration = audio_engine_get_duration();
+	int64_t time_ms = (duration * percent) / 100;
+
+	audio_engine_seek(time_ms);
+	return 0;
+}
+
 int audio_manager_seek(int64_t time_ms)
 {
 	audio_engine_seek(time_ms);
@@ -237,7 +247,7 @@ int64_t audio_manager_get_position(void)
 
 int64_t audio_manager_get_duration(void)
 {
-	return audio_engine_get_duration(); 
+	return audio_engine_get_duration();
 }
 
 player_status_t audio_manager_get_status(void)

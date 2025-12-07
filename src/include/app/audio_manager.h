@@ -22,6 +22,7 @@ int audio_manager_play_next(void);            // 下一首
 int audio_manager_play_prev(void);            // 上一首
 int audio_manager_play_at_index(int index);   // 播放列表指定索引
 int audio_manager_seek(int64_t time_ms);      // 跳转到指定时间(ms)
+int audio_manager_seek_percent(int percent);  // 跳转到指定百分比(0-100)
 int audio_manager_set_mode(play_mode_t mode); // 设置模式
 play_mode_t audio_manager_get_mode(void);     // 获取模式
 

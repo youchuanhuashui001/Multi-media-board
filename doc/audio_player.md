@@ -1082,3 +1082,457 @@ static void engine_status_callback(player_status_t status, void *user_data)
    - [ ] 自动切换到下一首歌曲
    - [ ] 封面、歌名、进度正确更新
 
+
+### 7.2 Seek 功能实现详解
+
+> **状态**: ✅ 已修复  
+> **日期**: 2025-12-07  
+
+#### 7.2.1 问题背景
+
+在实现进度条拖动 seek 功能时，遇到了以下问题：
+
+1. **时间戳单位错误**：`av_seek_frame` 一直跳转到开头
+2. **线程竞态条件**：播放线程可能错过 seek 事件
+
+#### 7.2.2 问题一：FFmpeg 时间戳单位
+
+**错误代码：**
+```c
+int64_t seek_ts = g_engine.seek_target_ms * 1000;  // 错误！假设单位是微秒
+av_seek_frame(fmt_ctx, audio_stream_index, seek_ts, AVSEEK_FLAG_BACKWARD);
+```
+
+**问题原因：**
+- `av_seek_frame` 的时间戳单位取决于传入的 `stream_index`
+- 当 `stream_index >= 0` 时，时间戳单位是该流的 `time_base`
+- 音频流的 `time_base` 通常是 `1/44100` 或 `1/48000`（采样率）
+- 直接将毫秒乘以 1000 得到的值与实际需要的时间戳相差甩远
+
+**正确代码：**
+```c
+// 将毫秒转换为流的 time_base 单位
+AVRational time_base = fmt_ctx->streams[audio_stream_index]->time_base;
+int64_t seek_ts = av_rescale_q(g_engine.seek_target_ms, (AVRational){1, 1000}, time_base);
+av_seek_frame(fmt_ctx, audio_stream_index, seek_ts, AVSEEK_FLAG_BACKWARD);
+```
+
+**`av_rescale_q` 函数说明：**
+- 将一个时间值从一个时间基准转换为另一个时间基准
+- 参数：`(value, src_time_base, dst_time_base)`
+- `(AVRational){1, 1000}` 表示毫秒（1/1000 秒）
+
+#### 7.2.3 问题二：线程竞态条件
+
+**问题场景：**
+```
+时间线     解码线程                           播放线程
+───────────────────────────────────────────────────────────────────
+T1      设置 seek_in_progress=1              正在 snd_pcm_writei() 阻塞...
+T2      av_seek_frame()                      ...阻塞...
+T3      ring_buffer_clear()                  ...阻塞...
+T4      设置 seek_in_progress=0              ...阻塞...
+T5      继续解码                             writei() 返回
+T6                                           检查 seek_in_progress=0
+T7                                           ❌ 错过了 seek！ALSA 缓冲区有旧数据
+```
+
+**解决方案：使用 Seek 序列号**
+
+```c
+// audio_engine_t 结构体
+volatile int seek_sequence;  // seek 序列号 (每次 seek 递增)
+
+// 解码线程 - seek 完成时递增
+g_engine.seek_sequence++;
+
+// 播放线程 - 对比序列号
+static int last_seek_seq = 0;
+if (g_engine.seek_sequence != last_seek_seq) {
+    last_seek_seq = g_engine.seek_sequence;
+    snd_pcm_drop(alsa_handle);    // 清空 ALSA 缓冲区
+    snd_pcm_prepare(alsa_handle);
+    continue;  // 重新读取新数据
+}
+```
+
+**优势：**
+- 序列号只增不减，播放线程永远不会错过 seek 事件
+- 不依赖时序，无论解码线程多快完成 seek 都能检测到
+- 代码简洁，无需等待或忙循环
+
+#### 7.2.4 完整 Seek 调用链
+
+```
+UI 层                    Manager 层                 Engine 层
+─────────────────────────────────────────────────────────────────
+用户拖动滑动条
+    │
+    ▼
+progress_slider_event_cb()
+    │ percent (0-100)
+    ▼
+audio_manager_seek_percent()
+    │ 计算 time_ms = duration * percent / 100
+    ▼
+audio_engine_seek()
+    │ 设置 seek_request=1, seek_target_ms
+    ▼
+┌─────────────────────────┬─────────────────────────┐
+│     解码线程            │     播放线程            │
+├─────────────────────────┼─────────────────────────┤
+│ 检测 seek_request=1     │ 检测 seek_sequence 变化 │
+│ av_rescale_q 转换时间戳 │ snd_pcm_drop 清空缓冲   │
+│ av_seek_frame 跳转      │ snd_pcm_prepare 重置    │
+│ ring_buffer_clear       │ continue 读取新数据     │
+│ seek_sequence++         │                         │
+│ seek_request=0          │                         │
+└─────────────────────────┴─────────────────────────┘
+```
+
+---
+### 7.3 切歌卡顿问题修复
+
+> **状态**: ✅ 已修复  
+> **日期**: 2025-12-07  
+
+#### 7.3.1 问题现象
+
+点击"下一首"按钮时：
+1. 当前播放的音乐没有立即停止，变得卡顿
+2. 新的音乐逐渐出来，也是卡顿的
+3. 日志显示：`ALSA open error: Device or resource busy`
+
+#### 7.3.2 线程状态分析
+
+**切歌时的线程状态图：**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          用户点击"下一首"                            │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     audio_engine_stop() 被调用                       │
+│                     设置 should_stop = 1                             │
+│                     pthread_cond_broadcast() 唤醒线程                │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+        ┌───────────────────────────┴───────────────────────────┐
+        ▼                                                       ▼
+┌───────────────────────────────┐       ┌───────────────────────────────┐
+│         解码线程               │       │         播放线程               │
+├───────────────────────────────┤       ├───────────────────────────────┤
+│ 可能阻塞位置：                 │       │ 可能阻塞位置：                 │
+│ 1. av_read_frame() ✅ 非阻塞   │       │ 1. snd_pcm_writei() ⚠️ 可能    │
+│ 2. ring_buffer_write() ❌ 等待 │       │ 2. ring_buffer_read() ❌ 等待  │
+│    cond_not_full               │       │    cond_not_empty              │
+│                                │       │ 3. pause_cond ✅ 会被唤醒      │
+└───────────────────────────────┘       └───────────────────────────────┘
+```
+
+**问题分析：**
+
+即使 `pthread_cond_broadcast()` 唤醒了等待的线程，线程从 `wait` 返回后会**重新检查 while 条件**：
+
+```c
+// 原来的错误代码
+while (rb->available < size) {  // ❌ 没有检查 should_stop
+    pthread_cond_wait(&rb->cond_not_empty, &rb->mutex);
+}
+// 被唤醒后，如果 available < size 仍然成立，会继续等待！
+```
+
+**导致的后果：**
+
+1. 解码线程可能卡在 `ring_buffer_write()` 等待空间
+2. 播放线程可能卡在 `ring_buffer_read()` 等待数据
+3. 主线程立即创建新线程，但旧线程还没退出
+4. 新播放线程打开 ALSA 失败（设备被旧线程占用）
+5. 多个线程同时访问 ring_buffer，导致音频数据混乱 → 卡顿
+
+#### 7.3.3 问题根因详解
+
+**问题一：ALSA 资源竞争**
+
+```
+时间线    主线程                    旧播放线程              新播放线程
+─────────────────────────────────────────────────────────────────────────
+T1      audio_engine_stop()       正在播放...            
+T2      should_stop = 1          
+T3      broadcast()              收到唤醒，但卡在 read()
+T4      audio_engine_play()                              
+T5      创建新播放线程                                    尝试 alsa_init()
+T6                               还没执行到 close()       ❌ ALSA busy!
+```
+
+**问题二：条件变量逻辑缺陷**
+
+```c
+// ring_buffer_write - 解码线程
+while ((rb->available + size) > RING_BUFFER_SIZE) {  // 只检查空间
+    pthread_cond_wait(&rb->cond_not_full, &rb->mutex);
+    // 被唤醒后，如果缓冲区还是满的，继续等待
+    // 播放线程如果也卡住了，就形成死锁
+}
+
+// ring_buffer_read - 播放线程
+while (rb->available < size) {  // 只检查数据
+    pthread_cond_wait(&rb->cond_not_empty, &rb->mutex);
+    // 被唤醒后，如果缓冲区还是空的，继续等待
+    // 解码线程如果也卡住了，就形成死锁
+}
+```
+
+**问题三：静态变量生命周期**
+
+```c
+static int last_seek_seq = 0;  // ❌ 进程级共享
+
+// 新线程创建后，last_seek_seq 保持旧值
+// 如果 seek_sequence 也保持不变，新线程不会清空 ALSA 缓冲区
+// 导致旧数据和新数据混合 → 卡顿
+```
+
+#### 7.3.4 修复方案详解
+
+**修复一：添加 ALSA 释放等待机制**
+
+```c
+// 1. 结构体添加标志
+typedef struct {
+    // ...
+    volatile int alsa_released;  // ALSA 已释放标志
+} audio_engine_t;
+
+// 2. 播放线程退出时设置标志
+static void *playback_thread_func(void *arg) {
+    // ... 播放循环 ...
+    
+    // 释放 ALSA 资源
+    snd_pcm_drop(alsa_handle);   // 使用 drop 比 drain 更快
+    snd_pcm_close(alsa_handle);
+    g_engine.alsa_released = 1;  // ← 标记已释放
+    
+    // ... 回调通知 ...
+}
+
+// 3. 新播放前等待
+int audio_engine_play(const char *file_path) {
+    if (g_engine.thread_running) {
+        audio_engine_stop();
+        // 等待旧线程释放 ALSA
+        while (!g_engine.alsa_released) {
+            usleep(1000);  // 1ms 轮询
+        }
+    }
+    g_engine.alsa_released = 0;  // 重置
+    // ... 创建新线程 ...
+}
+```
+
+**修复二：ring_buffer 添加停止检查**
+
+```c
+// ring_buffer_read - 播放线程
+static int ring_buffer_read(ring_buffer_t *rb, uint8_t *data, int size) {
+    pthread_mutex_lock(&rb->mutex);
+    
+    // 添加 should_stop 检查
+    while (rb->available < size && !g_engine.should_stop) {
+        pthread_cond_wait(&rb->cond_not_empty, &rb->mutex);
+    }
+    
+    // 被唤醒后立即检查是否需要退出
+    if (g_engine.should_stop) {
+        pthread_mutex_unlock(&rb->mutex);
+        return 0;  // 返回 0 让调用者知道需要退出
+    }
+    
+    // ... 正常读取 ...
+}
+
+// ring_buffer_write - 解码线程 (同理)
+static int ring_buffer_write(ring_buffer_t *rb, const uint8_t *data, int size) {
+    pthread_mutex_lock(&rb->mutex);
+    
+    while ((rb->available + size) > RING_BUFFER_SIZE && !g_engine.should_stop) {
+        pthread_cond_wait(&rb->cond_not_full, &rb->mutex);
+    }
+    
+    if (g_engine.should_stop) {
+        pthread_mutex_unlock(&rb->mutex);
+        return 0;
+    }
+    
+    // ... 正常写入 ...
+}
+```
+
+**修复三：移除静态变量**
+
+```c
+static void *playback_thread_func(void *arg) {
+    // ...
+    
+    // 在循环外初始化，不使用 static
+    int last_seek_seq = g_engine.seek_sequence;  // ← 每个线程独立的值
+    
+    while (!g_engine.should_stop) {
+        // seek 检测
+        if (g_engine.seek_sequence != last_seek_seq) {
+            last_seek_seq = g_engine.seek_sequence;
+            snd_pcm_drop(alsa_handle);
+            snd_pcm_prepare(alsa_handle);
+            continue;
+        }
+        // ...
+    }
+}
+```
+
+#### 7.3.5 修复后的时序图
+
+```
+时间线    主线程                    旧播放线程              新播放线程
+─────────────────────────────────────────────────────────────────────────
+T1      audio_engine_stop()       正在播放...
+T2      should_stop = 1
+T3      broadcast()               
+T4      等待 alsa_released...     收到唤醒
+T5                                检测 should_stop=1
+T6                                ring_buffer_read 返回 0
+T7                                跳出循环
+T8                                snd_pcm_close()
+T9                                alsa_released = 1 ────→ 检测到！
+T10     audio_engine_play()                                创建
+T11     创建成功                                           alsa_init() ✅
+```
+
+#### 7.3.6 验证结果
+
+```
+[STOP] audio_engine_stop() called
+[STOP] audio_engine_stop() done, waiting for threads to exit...
+[PLAY] Waiting for ALSA release...
+[PLAY_THREAD] ALSA released, thread exiting    ← 仅 16ms
+[PLAY] ALSA released, continue
+```
+
+切歌响应时间约 **16ms**，音乐切换流畅无卡顿。
+
+---
+## 8. 附录：核心技术详解
+
+### 8.1 Pthread 多线程与同步机制
+
+本项目使用 POSIX Threads (pthread) 库实现并发控制。以下是核心 API 的详细用法说明：
+
+#### 8.1.1 线程管理 API
+
+**1. `pthread_create`**
+*   **原型**: `int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);`
+*   **功能**: 创建一个新的线程。
+*   **参数**:
+    *   `thread`: 指向 `pthread_t` 变量的指针，用于存储新线程的 ID。
+    *   `attr`: 线程属性，通常传 `NULL` 使用默认属性。
+    *   `start_routine`: 线程启动后执行的函数指针。
+    *   `arg`: 传递给线程函数的参数。
+*   **本项目用法**:
+    ```c
+    // 创建解码线程
+    pthread_create(&g_engine.decode_thread, NULL, decode_thread_func, NULL);
+    ```
+
+**2. `pthread_detach`**
+*   **原型**: `int pthread_detach(pthread_t thread);`
+*   **功能**: 将线程标记为分离状态。分离状态的线程在终止时，其资源会自动释放回系统，无需其他线程调用 `pthread_join`。
+*   **本项目用法**:
+    ```c
+    // 创建后立即分离，实现"火后即焚"
+    pthread_detach(g_engine.decode_thread);
+    ```
+    *注意*: 一旦分离，就不能再用 `pthread_join` 等待它了。这在我们的新设计中非常关键，避免了停止时的死锁风险。
+
+#### 8.1.2 互斥锁 API (Mutex)
+
+互斥锁用于保护临界区，确保同一时间只有一个线程访问共享资源。
+
+**1. `pthread_mutex_init`**
+*   **原型**: `int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr);`
+*   **功能**: 初始化互斥锁。
+*   **本项目用法**: `pthread_mutex_init(&rb->mutex, NULL);`
+
+**2. `pthread_mutex_lock`**
+*   **原型**: `int pthread_mutex_lock(pthread_mutex_t *mutex);`
+*   **功能**: 获取锁。如果锁已被占用，当前线程会阻塞，直到锁被释放。
+*   **本项目用法**: 在访问环形缓冲区 `read_pos`/`write_pos` 前必须调用。
+
+**3. `pthread_mutex_unlock`**
+*   **原型**: `int pthread_mutex_unlock(pthread_mutex_t *mutex);`
+*   **功能**: 释放锁。
+*   **本项目用法**: 访问完共享资源后立即调用，让出使用权。
+
+**4. `pthread_mutex_destroy`**
+*   **原型**: `int pthread_mutex_destroy(pthread_mutex_t *mutex);`
+*   **功能**: 销毁互斥锁，释放相关资源。
+
+#### 8.1.3 条件变量 API (Condition Variable)
+
+条件变量用于线程间的同步，允许线程在某些条件不满足时挂起（等待），直到其他线程改变条件并发送信号。
+
+**1. `pthread_cond_init`**
+*   **原型**: `int pthread_cond_init(pthread_cond_t *cond, const pthread_condattr_t *attr);`
+*   **功能**: 初始化条件变量。
+
+**2. `pthread_cond_wait`**
+*   **原型**: `int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);`
+*   **功能**: 
+    1.  **原子地**释放互斥锁 `mutex` 并将当前线程挂起（阻塞）。
+    2.  等待 `cond` 收到信号。
+    3.  被唤醒后，**重新获取**互斥锁 `mutex` 并返回。
+*   **关键点**: 调用前**必须**持有锁。通常在 `while` 循环中使用，以防止虚假唤醒。
+*   **本项目用法**:
+    ```c
+    pthread_mutex_lock(&rb->mutex);
+    // 只要缓冲区空且没停止，就一直等
+    while (rb->available == 0 && !should_stop) {
+        pthread_cond_wait(&rb->cond_not_empty, &rb->mutex);
+    }
+    // ... 读取数据 ...
+    pthread_mutex_unlock(&rb->mutex);
+    ```
+
+**3. `pthread_cond_signal`**
+*   **原型**: `int pthread_cond_signal(pthread_cond_t *cond);`
+*   **功能**: 唤醒**至少一个**等待在该条件变量上的线程。
+*   **本项目用法**: 生产者写入数据后，调用 `pthread_cond_signal(&rb->cond_not_empty)` 唤醒消费者。
+
+**4. `pthread_cond_broadcast`**
+*   **原型**: `int pthread_cond_broadcast(pthread_cond_t *cond);`
+*   **功能**: 唤醒**所有**等待在该条件变量上的线程。
+*   **本项目用法**: 在 `audio_engine_stop` 时，我们需要唤醒所有可能在等待（无论是等数据还是等暂停）的线程，让它们有机会检测 `should_stop` 标志并退出。
+    ```c
+    g_engine.should_stop = 1;
+    pthread_cond_broadcast(&g_engine.ring_buffer.cond_not_empty);
+    // 所有被唤醒的线程会检查 while(!should_stop) 循环条件并退出
+    ```
+
+#### 8.1.4 典型同步模式：生产者-消费者
+
+本项目中的环形缓冲区完美体现了这一模式：
+	
+1.  **生产者 (解码线程)**:
+    *   获取锁。
+    *   如果缓冲区满 (`available >= size`)，调用 `wait(cond_not_full)` 等待。
+    *   写入数据，更新 `write_pos`。
+    *   调用 `signal(cond_not_empty)` 通知消费者有数据了。
+    *   释放锁。
+
+2.  **消费者 (播放线程)**:
+    *   获取锁。
+    *   如果缓冲区空 (`available == 0`)，调用 `wait(cond_not_empty)` 等待。
+    *   读取数据，更新 `read_pos`。
+    *   调用 `signal(cond_not_full)` 通知生产者有空位了。
+    *   释放锁。

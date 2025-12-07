@@ -81,7 +81,7 @@ static void update_song_info(void)
 		lv_label_set_text(g_audio_view.title_label, "无歌曲");
 		lv_label_set_text(g_audio_view.artist_label, "");
 		lv_label_set_text(g_audio_view.lyric_label, "");
-		
+
 		// 清除封面（显示默认背景）
 		lv_obj_set_style_bg_img_src(g_audio_view.cover_img, AUDIO_COVER_DEFAULT, 0);
 		lv_obj_set_style_bg_image_opa(g_audio_view.cover_img, LV_OPA_COVER, 0);
@@ -140,10 +140,10 @@ static void update_progress(void)
 	format_time(dur, time_buf, sizeof(time_buf));
 	lv_label_set_text(g_audio_view.time_total_label, time_buf);
 
-	// 更新进度条
+	// 更新进度条 (slider)
 	if (dur > 0) {
 		int percentage = (int)((pos * 100) / dur);
-		lv_bar_set_value(g_audio_view.progress_bar, percentage, LV_ANIM_OFF);
+		lv_slider_set_value(g_audio_view.progress_bar, percentage, LV_ANIM_OFF);
 	}
 }
 
@@ -253,6 +253,19 @@ static void mode_btn_event_cb(lv_event_t *e)
 			lv_label_set_text(label, "随机");
 			break;
 		}
+	}
+}
+
+// 进度条滑动事件 (用户拖动 seek)
+static void progress_slider_event_cb(lv_event_t *e)
+{
+	lv_event_code_t code = lv_event_get_code(e);
+
+	// 用户松手时触发 seek
+	if (code == LV_EVENT_RELEASED) {
+		lv_obj_t *slider = lv_event_get_target(e);
+		int percent = lv_slider_get_value(slider);
+		audio_manager_seek_percent(percent);
 	}
 }
 
@@ -424,12 +437,13 @@ void audio_view_init(void)
 	lv_label_set_long_mode(g_audio_view.lyric_label, LV_LABEL_LONG_WRAP);
 	lv_label_set_text(g_audio_view.lyric_label, "");
 
-	// 进度条
-	g_audio_view.progress_bar = lv_bar_create(audio_view.screen);
+	// 进度条 (使用 slider 支持用户拖动 seek)
+	g_audio_view.progress_bar = lv_slider_create(audio_view.screen);
 	lv_obj_set_size(g_audio_view.progress_bar, 500, 10);
 	lv_obj_set_pos(g_audio_view.progress_bar, 450, 460);
-	lv_bar_set_range(g_audio_view.progress_bar, 0, 100);
-	lv_bar_set_value(g_audio_view.progress_bar, 0, LV_ANIM_OFF);
+	lv_slider_set_range(g_audio_view.progress_bar, 0, 100);
+	lv_slider_set_value(g_audio_view.progress_bar, 0, LV_ANIM_OFF);
+	lv_obj_add_event_cb(g_audio_view.progress_bar, progress_slider_event_cb, LV_EVENT_RELEASED, NULL);
 
 	// 时间标签
 	g_audio_view.time_current_label = lv_label_create(audio_view.screen);
