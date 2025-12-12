@@ -13,6 +13,8 @@ typedef enum {
 
 // 初始化
 int audio_manager_init(void);
+int audio_manager_is_ready(void);     // 检查是否已初始化（有歌曲可播放）
+int audio_manager_ensure_ready(void); // 确保已初始化，若未初始化则执行初始化
 
 // 播放控制
 int audio_manager_play(void);                 // 播放/暂停切换

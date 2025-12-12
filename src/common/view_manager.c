@@ -1,6 +1,10 @@
 #include "view_manager.h"
+#include "system_bar.h"
 #include "src/lv_api_map_v8.h"
 #include "src/misc/lv_area.h"
+
+// 前向声明
+static void view_gesture_event_cb(lv_event_t * e);
 
 view_manager_t g_view_manager;
 
@@ -29,6 +33,9 @@ void view_manager_init(void)
 	lv_obj_clear_flag(g_view_manager.indicator_bar, LV_OBJ_FLAG_CLICKABLE); // 避免影响下层控件的触摸
 
 	lv_obj_move_foreground(g_view_manager.indicator_bar);
+
+	// 初始化全局控制中心
+	system_bar_init();
 }
 
 int view_manager_register(view_t *view)
@@ -51,6 +58,13 @@ int view_manager_register(view_t *view)
 			g_view_manager.current_view->init();
 		}
 		g_view_manager.current_view->initialized = 1;
+
+		// 为第一个视图也添加手势检测（用于从顶部下滑呼出控制中心）
+		if (g_view_manager.current_view->screen) {
+			lv_obj_add_event_cb(g_view_manager.current_view->screen,
+						  view_gesture_event_cb,
+						  LV_EVENT_ALL, NULL);
+		}
 	}
 
 	view_printf("******* %d %s ********\n", __LINE__, __FUNCTION__);
@@ -75,26 +89,28 @@ static void view_gesture_event_cb(lv_event_t * e)
 	static bool is_scrolling = false;
 
 	if(code == LV_EVENT_PRESSED) {
-	view_printf(" current view=%s LV_EVENT_PRESSED\n", g_view_manager.current_view->name);
 		lv_indev_get_point(lv_indev_get_act(), &scroll_start);
 		is_scrolling = true;
+		diff.y = 0;  // 重置 diff
 	}
 	else if(code == LV_EVENT_PRESSING && is_scrolling) {
-	view_printf(" current view=%s is_scrolling \n", g_view_manager.current_view->name);
-	lv_point_t curr;
-	lv_indev_get_point(lv_indev_get_act(), &curr);
-	diff.y += scroll_start.y - curr.y;
+		lv_point_t curr;
+		lv_indev_get_point(lv_indev_get_act(), &curr);
+		diff.y = curr.y - scroll_start.y;  // 向下滑动为正值
 
-		// 如果在底部区域且向上滑动超过50像素
-		if(scroll_start.y > (lv_display_get_vertical_resolution(NULL) - 100) &&
-		   diff.y > 50) {
+		printf("[view_gesture] PRESSING: start_y=%d, curr_y=%d, diff_y=%d\n",
+			scroll_start.y, curr.y, diff.y);
+
+		// 如果在顶部区域且向下滑动超过50像素 -> 显示控制中心
+		if(scroll_start.y < 100 && diff.y > 50) {
+			printf("[view_gesture] >>> 触发控制中心显示！\n");
 			is_scrolling = false;
-			view_manager_switch_to("main_view");
+			system_bar_show();
 		}
 	}
 	else if(code == LV_EVENT_RELEASED) {
-	view_printf(" current view=%s LV_EVENT_RELEASED\n", g_view_manager.current_view->name);
-	diff.y = 0;
+		printf("[view_gesture] RELEASED\n");
+		diff.y = 0;
 		is_scrolling = false;
 	}
 }
@@ -169,15 +185,10 @@ int view_manager_switch_to(const char *name)
 		view_printf("g_view_manager.current_view->hide = %p\n", g_view_manager.current_view->hide);
 		view_printf("g_view_manager.current_view->show = %p\n", g_view_manager.current_view->show);
 
-			// 为新视图添加手势检测
-		// 这里是为各个页面，添加的事件
-			if(strcmp(name, "main_view") != 0) {  // main_view 不需要手势返回
-				lv_obj_add_event_cb(g_view_manager.current_view->screen,
-								  view_gesture_event_cb,
-								  LV_EVENT_ALL, NULL);
-				lv_obj_clear_flag(g_view_manager.current_view->screen,
-								LV_OBJ_FLAG_SCROLLABLE);  // 禁用默认滚动
-			}
+			// 为所有视图添加手势检测（包括 main_view，用于从顶部下滑呼出控制中心）
+			lv_obj_add_event_cb(g_view_manager.current_view->screen,
+						  view_gesture_event_cb,
+						  LV_EVENT_ALL, NULL);
 		}
 		g_view_manager.current_view->initialized = 1;
 	} else {

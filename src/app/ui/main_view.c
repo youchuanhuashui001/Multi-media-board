@@ -11,10 +11,6 @@ typedef struct {
 		lv_obj_t *book;       // 电子书按钮
 		lv_obj_t *setup;      // 设置按钮
 	} buttons;
-	struct {
-		lv_obj_t *time;       // 时间显示
-		lv_obj_t *date;       // 日期显示
-	} info;
 } g_main_ui_t;
 
 // UI元素实例
@@ -164,22 +160,6 @@ static void main_view_init(void)
 	lv_obj_align(g_main_ui.buttons.photo, LV_ALIGN_TOP_LEFT, 350, 50);
 	lv_obj_align(g_main_ui.buttons.book, LV_ALIGN_TOP_LEFT, 50, 200);
 	lv_obj_align(g_main_ui.buttons.setup, LV_ALIGN_TOP_LEFT, 200, 200);
-
-	// 创建时间日期显示
-	g_main_ui.info.time = lv_label_create(main_view.screen);
-	g_main_ui.info.date = lv_label_create(main_view.screen);
-
-	lv_label_set_text(g_main_ui.info.time, "12:00");
-	lv_obj_set_style_text_color(g_main_ui.info.time, lv_color_hex(0xFFFFFF), 0);
-	lv_obj_set_style_text_font(g_main_ui.info.time, &lv_font_montserrat_16, 0);
-
-	lv_label_set_text(g_main_ui.info.date, "2025-11-01");
-	lv_obj_set_style_text_color(g_main_ui.info.date, lv_color_hex(0xFFFFFF), 0);
-	lv_obj_set_style_text_font(g_main_ui.info.date, &lv_font_montserrat_16, 0);
-
-	lv_obj_align(g_main_ui.info.time, LV_ALIGN_TOP_MID, 0, 0);
-	lv_obj_align(g_main_ui.info.date, LV_ALIGN_TOP_MID, 0, 20);
-
 }
 
 view_t main_view = {
