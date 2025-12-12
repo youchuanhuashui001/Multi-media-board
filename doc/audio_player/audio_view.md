@@ -283,8 +283,6 @@ typedef struct {
         *   计算歌曲索引 `index = row - 1` (第0行是表头)。
         *   调用 `audio_manager_play_at_index(index)`。
         *   隐藏弹窗。
-3.  **高亮当前**:
-    *   打开弹窗时，遍历表格，将当前播放的歌曲行文字标绿，其他行白色。
 
 ## 4.2 Step 5: 细节优化与测试 (Optimization)
 

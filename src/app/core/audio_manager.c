@@ -264,3 +264,8 @@ music_info_t *audio_manager_get_playlist_head(void)
 {
 	return g_manager.playlist_head;
 }
+
+int audio_manager_get_current_index(void)
+{
+	return g_manager.current_index;
+}

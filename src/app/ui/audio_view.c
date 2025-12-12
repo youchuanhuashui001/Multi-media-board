@@ -3,6 +3,7 @@
 #include "audio_manager.h"
 #include "common.h"
 #include "src/core/lv_obj.h"
+#include "src/misc/lv_color.h"
 #include "view_manager.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -353,6 +354,19 @@ static void progress_slider_event_cb(lv_event_t *e)
 	}
 }
 
+// 点击背景关闭弹窗
+static void playlist_popup_event_cb(lv_event_t *e)
+{
+	lv_event_code_t code = lv_event_get_code(e);
+	lv_obj_t *target = lv_event_get_target(e);
+
+	// 只有点击遮罩层本身才关闭，点击列表容器或表格不关闭
+	if (code == LV_EVENT_CLICKED && target == g_audio_view.playlist_popup) {
+		lv_obj_add_flag(g_audio_view.playlist_popup, LV_OBJ_FLAG_HIDDEN);
+	}
+}
+
+
 // 播放列表按钮
 static void playlist_btn_event_cb(lv_event_t *e) {
 	if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
@@ -379,8 +393,8 @@ static void playlist_item_event_cb(lv_event_t *e)
 			int song_index = row - 1;  // 转换为歌曲索引 (0-based)
 			printf("playlist_item_event_cb: row = %u, song_index = %d\n", row, song_index);
 
-			// TODO:播放选中的歌曲
-			//audio_manager_play_at_index(song_index);
+			// 播放选中的歌曲
+			audio_manager_play_at_index(song_index);
 
 			// 关闭弹窗
 			if (g_audio_view.playlist_popup) {
@@ -413,7 +427,11 @@ static void create_playlist_popup(void)
 	lv_obj_set_style_bg_color(g_audio_view.playlist_popup, lv_color_black(), 0);
 	lv_obj_set_style_bg_opa(g_audio_view.playlist_popup, LV_OPA_60, 0);
 	lv_obj_set_style_border_width(g_audio_view.playlist_popup, 0, 0);
+	lv_obj_set_style_pad_all(g_audio_view.playlist_popup, 0, 0);
 	lv_obj_add_flag(g_audio_view.playlist_popup, LV_OBJ_FLAG_HIDDEN);
+
+	// 添加点击遮罩层关闭弹窗的事件
+	lv_obj_add_event_cb(g_audio_view.playlist_popup, playlist_popup_event_cb, LV_EVENT_CLICKED, NULL);
 
 	// 创建列表容器 (居中)
 	lv_obj_t *list_cont = lv_obj_create(g_audio_view.playlist_popup);
@@ -421,21 +439,45 @@ static void create_playlist_popup(void)
 	lv_obj_center(list_cont);
 	lv_obj_set_style_bg_color(list_cont, lv_color_make(30, 30, 30), 0);
 	lv_obj_set_style_radius(list_cont, 10, 0);
+	lv_obj_set_style_border_width(list_cont, 0, 0);  // 去掉容器边框
+	lv_obj_set_style_pad_all(list_cont, 10, 0);
 
 	// 创建表格
 	g_audio_view.playlist_table = lv_table_create(list_cont);
 	// 中文字体
 	lv_obj_set_style_text_font(g_audio_view.playlist_table, g_audio_view.font_20, 0);
-	lv_obj_set_size(g_audio_view.playlist_table, 760, 460);
+	lv_obj_set_size(g_audio_view.playlist_table, 780, 480);
 	lv_obj_center(g_audio_view.playlist_table);
 
+	// ===== 样式优化 =====
+	// 去掉表格边框
+	lv_obj_set_style_border_width(g_audio_view.playlist_table, 0, 0);
+	lv_obj_set_style_pad_all(g_audio_view.playlist_table, 0, 0);
+
+//	// 去掉单元格边框，弱化单元格分隔
+	lv_obj_set_style_border_width(g_audio_view.playlist_table, 0, LV_PART_ITEMS);
+	lv_obj_set_style_border_color(g_audio_view.playlist_table, lv_color_make(50, 50, 50), LV_PART_ITEMS);
+	lv_obj_set_style_border_side(g_audio_view.playlist_table, LV_BORDER_SIDE_BOTTOM, LV_PART_ITEMS);
+	lv_obj_set_style_border_width(g_audio_view.playlist_table, 1, LV_PART_ITEMS);
+
+	// 设置单元格背景色（透明，让行背景统一显示）
+	lv_obj_set_style_bg_opa(g_audio_view.playlist_table, LV_OPA_0, LV_PART_ITEMS);
+	lv_obj_set_style_bg_color(g_audio_view.playlist_table, lv_color_white(), 0);
+
+	// 设置文字颜色
+	lv_obj_set_style_text_color(g_audio_view.playlist_table, lv_color_black(), LV_PART_ITEMS);
+
+	// 设置按下效果（整行高亮）
+	lv_obj_set_style_bg_opa(g_audio_view.playlist_table, LV_OPA_30, LV_PART_ITEMS | LV_STATE_PRESSED);
+	lv_obj_set_style_bg_color(g_audio_view.playlist_table, lv_color_make(100, 100, 100), LV_PART_ITEMS | LV_STATE_PRESSED);
+
 	// 设置列宽
-	lv_table_set_column_width(g_audio_view.playlist_table, 0, 100); // 序号
-	lv_table_set_column_width(g_audio_view.playlist_table, 1, 350); // 标题
-	lv_table_set_column_width(g_audio_view.playlist_table, 2, 200); // 歌手
+	lv_table_set_column_width(g_audio_view.playlist_table, 0, 80);  // 序号
+	lv_table_set_column_width(g_audio_view.playlist_table, 1, 380); // 标题
+	lv_table_set_column_width(g_audio_view.playlist_table, 2, 220); // 歌手
 	lv_table_set_column_width(g_audio_view.playlist_table, 3, 100); // 时长
 
-	// 设置标题
+	// 设置标题行
 	lv_table_set_cell_value(g_audio_view.playlist_table, 0, 0, "序号");
 	lv_table_set_cell_value(g_audio_view.playlist_table, 0, 1, "歌曲");
 	lv_table_set_cell_value(g_audio_view.playlist_table, 0, 2, "歌手");
@@ -602,9 +644,9 @@ void audio_view_init(void)
 	audio_view.screen = lv_obj_create(lv_screen_active());
 	lv_obj_set_size(audio_view.screen, LV_PCT(100), LV_PCT(100));
 	lv_obj_set_style_border_width(audio_view.screen, 0, 0);
-	lv_obj_set_style_bg_opa(audio_view.screen, LV_OPA_0, 0);
-	//TODO:考虑背景图片
-//	lv_obj_set_style_bg_color(audio_view.screen, lv_color_black(), 0); // Black background
+	lv_obj_set_style_bg_opa(audio_view.screen, LV_OPA_COVER, 0);
+	// 设置背景图片（使用 LVGL 图片缓存）
+	lv_obj_set_style_bg_img_src(audio_view.screen, "A:resources/image/audio/audio_background.png", 0);
 	lv_obj_set_style_pad_all(audio_view.screen, 0, 0);
 
 	// 加载字体

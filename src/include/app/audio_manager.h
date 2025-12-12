@@ -36,5 +36,6 @@ player_status_t audio_manager_get_status(void);     // 获取播放状态
 int audio_manager_scan_dir(const char *path);        // 扫描目录
 int audio_manager_get_playlist_count(void);          // 获取歌曲总数
 music_info_t *audio_manager_get_playlist_head(void); // 获取链表头
+int audio_manager_get_current_index(void);           // 获取当前歌曲索引
 
 #endif // AUDIO_MANAGER_H
