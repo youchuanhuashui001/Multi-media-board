@@ -136,8 +136,9 @@ static int ring_buffer_read(ring_buffer_t *rb, uint8_t *data, int size)
 {
 	pthread_mutex_lock(&rb->mutex);
 
-	// 如果 ringbuffer 中可用的数据小于要读取的数据，就等待；同时检查停止标志
-	while (rb->available < size && !g_engine.should_stop) {
+	// 如果 ringbuffer 中可用的数据小于要读取的数据，就等待
+	// 同时检查停止标志和解码完成标志
+	while (rb->available < size && !g_engine.should_stop && !g_engine.decode_finished) {
 		pthread_cond_wait(&rb->cond_not_empty, &rb->mutex);
 	}
 
@@ -147,10 +148,15 @@ static int ring_buffer_read(ring_buffer_t *rb, uint8_t *data, int size)
 		return 0;
 	}
 
+	// 解码完成且 ringbuffer 为空，返回 0 表示播放结束
+	if (g_engine.decode_finished && rb->available == 0) {
+		pthread_mutex_unlock(&rb->mutex);
+		return 0;
+	}
+
 	// 要读的数据量，取 ringbuffer 中可用的数据和要读取的数据的最小值
-	// 这里其实和上面的逻辑不一致了，因为上面已经判断了 rb->available < size
-	// 这里必然 rb->available >= size，能够读走所有数据
-	int to_read = size;
+	// 当解码完成时，可能剩余数据不足 size，此时读取所有剩余数据
+	int to_read = (rb->available < size) ? rb->available : size;
 	int part1 = RING_BUFFER_SIZE - rb->read_pos;
 
 	// 考虑绕圈的问题
@@ -314,8 +320,9 @@ static void *decode_thread_func(void *arg)
 		// 解码线程不处理暂停,继续解码直到 ringbuffer 填满
 
 		if (av_read_frame(fmt_ctx, packet) < 0) {
-			// 文件读取结束，设置解码完成标志
+			// 文件读取结束，设置解码完成标志并唤醒播放线程
 			g_engine.decode_finished = 1;
+			pthread_cond_signal(&g_engine.ring_buffer.cond_not_empty);
 			break;
 		}
 
