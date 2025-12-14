@@ -1,4 +1,5 @@
 #include "audio_view.h"
+#include "audio_engine.h"
 #include "audio_library.h"
 #include "audio_manager.h"
 #include "common.h"
@@ -10,6 +11,12 @@
 
 #define AUDIO_LIBRARY_DIR "./resources/audio/"
 #define AUDIO_COVER_DEFAULT "./resources/image/audio/def_cover.png"
+
+// 音量图标路径 (32x32)
+#define VOLUME_ICON_MUTE "A:resources/image/audio/volume_mute.png"
+#define VOLUME_ICON_LOW  "A:resources/image/audio/volume_low.png"
+#define VOLUME_ICON_MID  "A:resources/image/audio/volume_mid.png"
+#define VOLUME_ICON_HIGH "A:resources/image/audio/volume_high.png"
 
 // ========== UI 元素定义 ==========
 typedef struct {
@@ -36,6 +43,10 @@ typedef struct {
 	lv_obj_t *play_btn;          // 播放/暂停切换
 	lv_obj_t *next_btn;
 	lv_obj_t *playlist_btn;      // 打开播放列表弹窗
+
+	// --- 音量控制 ---
+	lv_obj_t *volume_icon;       // 音量图标 (32x32)
+	lv_obj_t *volume_slider;     // 音量滑动条
 
 	// --- 弹窗 ---
 	lv_obj_t *playlist_popup;    // 容器 (模态)
@@ -133,9 +144,9 @@ static void init_song_info(void)
 		for (int i = 0; i < 7; i++) {
 			if (i < head->lyrics->count && head->lyrics->lines[i].text) {
 				// 第0行高亮 (#0000ff), 其他行黑色 (#000000)
-				const char *color = (i == 0) ? "#0000ff " : "#000000 ";
+				const char *color = (i == 0) ? "#0000ff" : "#000000";
 
-				int written = snprintf(p, remaining, "%s%s%s#", 
+				int written = snprintf(p, remaining, "%s %s#%s", 
 				                       color,
 				                       head->lyrics->lines[i].text,
 				                       (i < 6) ? "\n" : "");
@@ -239,9 +250,9 @@ static void update_lyrics(void)
 	for (int i = start; i <= end; i++) {
 		if (i >= 0 && i < lyrics->count && lyrics->lines[i].text) {
 			// 高亮当前行 (#0000ff), 其他行黑色 (#000000)
-			const char *color = (i == current_index) ? "#0000ff " : "#000000 ";
+			const char *color = (i == current_index) ? "#0000ff" : "#000000";
 
-			int written = snprintf(p, remaining, "%s%s%s#", 
+			int written = snprintf(p, remaining, "%s %s#%s", 
 			                       color,
 			                       lyrics->lines[i].text,
 			                       (i < end) ? "\n" : "");
@@ -302,6 +313,43 @@ static void update_mete_data(void)
 	}
 
 
+}
+
+// ========== 音量控制 ==========
+
+// 更新音量图标 (根据音量值切换图标)
+static void update_volume_icon(int volume)
+{
+	const char *icon_path;
+
+	if (volume == 0) {
+		icon_path = VOLUME_ICON_MUTE;
+	} else if (volume <= 33) {
+		icon_path = VOLUME_ICON_LOW;
+	} else if (volume <= 66) {
+		icon_path = VOLUME_ICON_MID;
+	} else {
+		icon_path = VOLUME_ICON_HIGH;
+	}
+
+	lv_image_set_src(g_audio_view.volume_icon, icon_path);
+}
+
+// 音量滑动条事件回调
+static void volume_slider_event_cb(lv_event_t *e)
+{
+	lv_event_code_t code = lv_event_get_code(e);
+
+	if (code == LV_EVENT_VALUE_CHANGED) {
+		lv_obj_t *slider = lv_event_get_target(e);
+		int volume = lv_slider_get_value(slider);
+
+		// 设置音量
+		audio_engine_set_volume(volume);
+
+		// 更新图标
+		update_volume_icon(volume);
+	}
 }
 
 // ========== 事件回调 ==========
@@ -534,9 +582,34 @@ static void create_left_panel(void)
 	// 歌手 (pos: 50,415)
 	g_audio_view.artist_label = lv_label_create(audio_view.screen);
 	lv_obj_set_style_text_font(g_audio_view.artist_label, g_audio_view.font_20, 0);
-	lv_obj_set_style_text_color(g_audio_view.artist_label, lv_color_make(180, 180, 180), 0);
+	lv_obj_set_style_text_color(g_audio_view.artist_label, lv_color_black(), 0);
 	lv_obj_set_pos(g_audio_view.artist_label, 50, 415);
 	lv_label_set_text(g_audio_view.artist_label, "歌手");
+}
+
+// 创建音量控制组件
+static void create_volume_control(void)
+{
+	// 音量图标 (32x32, pos: 50, 480)
+	g_audio_view.volume_icon = lv_image_create(audio_view.screen);
+	lv_obj_set_size(g_audio_view.volume_icon, 32, 32);
+	lv_obj_set_pos(g_audio_view.volume_icon, 50, 480);
+
+	// 音量滑动条 (pos: 90, 488, width: 210)
+	g_audio_view.volume_slider = lv_slider_create(audio_view.screen);
+	lv_obj_set_size(g_audio_view.volume_slider, 210, 10);
+	lv_obj_set_pos(g_audio_view.volume_slider, 90, 488);
+	lv_slider_set_range(g_audio_view.volume_slider, 0, 100);
+
+	// 获取当前音量并设置初始值
+	int current_volume = audio_engine_get_volume();
+	lv_slider_set_value(g_audio_view.volume_slider, current_volume, LV_ANIM_OFF);
+
+	// 设置初始图标
+	update_volume_icon(current_volume);
+
+	// 添加事件回调
+	lv_obj_add_event_cb(g_audio_view.volume_slider, volume_slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 }
 
 static void create_right_panel(void)
@@ -667,6 +740,7 @@ void audio_view_init(void)
 	create_left_panel();
 	create_right_panel();
 	create_controls();
+	create_volume_control();
 
 	// 创建播放列表弹窗 (Keep existing logic for now, just ensure it's created)
 	create_playlist_popup();

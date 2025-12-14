@@ -3,6 +3,7 @@ Document/.obsidian/
 .cache/
 Code/module/lcd/lib/brotli/
 Code/.cache/
+compile_commands.json
 
 # ===================================================
 # 以下是本次新增的规则

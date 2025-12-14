@@ -30,6 +30,10 @@ int64_t audio_engine_get_position(void);       // 获取当前进度 (ms)
 int64_t audio_engine_get_duration(void);       // 获取总时长 (ms)
 player_status_t audio_engine_get_status(void); // 获取播放状态
 
+// 音量控制
+int audio_engine_set_volume(int volume_percent); // 设置音量 (0-100)
+int audio_engine_get_volume(void);               // 获取当前音量 (0-100)
+
 // 状态回调注册
 void audio_engine_set_callback(engine_status_cb_t cb, void *user_data);
 

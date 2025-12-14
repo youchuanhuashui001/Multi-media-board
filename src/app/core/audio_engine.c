@@ -5,6 +5,7 @@
 #include <libavformat/avformat.h>
 #include <libavutil/opt.h>
 #include <libswresample/swresample.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,16 @@
 #define TARGET_CHANNELS 2
 #define TARGET_FORMAT SND_PCM_FORMAT_S16_LE
 #define RING_BUFFER_SIZE (1024 * 512) // 512KB 环形缓冲区
+
+// ========== 音量控制配置 ==========
+#define DEFAULT_VOLUME_PERCENT 30   // 默认音量百分比
+#define MIXER_CARD "default"        // 混音器声卡
+#define MIXER_SELEM_NAME "Playback" // 混音器控制项名称
+
+// alsamixer 使用的感知刻度动态范围 (dB)
+// 公式: dB = max_dB + DYNAMIC_RANGE * log10(percent / 100)
+#define PERCEPTUAL_DB_RANGE 60.0
+
 
 // ========== 环形缓冲区 ==========
 typedef struct {
@@ -219,6 +230,188 @@ static int alsa_init(snd_pcm_t **handle)
 
 	snd_pcm_prepare(*handle);
 	return 0;
+}
+
+// ========== 音量控制函数 ==========
+
+/**
+ * @brief 查找指定的混音器控制元素
+ * @param handle 已打开的混音器句柄
+ * @return 找到的元素指针，未找到返回 NULL
+ */
+static snd_mixer_elem_t *find_mixer_elem(snd_mixer_t *handle)
+{
+	snd_mixer_selem_id_t *sid;
+	snd_mixer_selem_id_alloca(&sid);
+	snd_mixer_selem_id_set_index(sid, 0);
+	snd_mixer_selem_id_set_name(sid, MIXER_SELEM_NAME);
+
+	return snd_mixer_find_selem(handle, sid);
+}
+
+/**
+ * @brief 打开并初始化混音器
+ * @param handle_out 输出的混音器句柄
+ * @return 0 成功, -1 失败
+ */
+static int open_mixer(snd_mixer_t **handle_out)
+{
+	snd_mixer_t *handle = NULL;
+
+	// 1. 打开混音器
+	if (snd_mixer_open(&handle, 0) < 0) {
+		fprintf(stderr, "音量控制: 无法打开混音器\n");
+		return -1;
+	}
+
+	// 2. 关联到声卡
+	if (snd_mixer_attach(handle, MIXER_CARD) < 0) {
+		fprintf(stderr, "音量控制: 无法关联到声卡 %s\n", MIXER_CARD);
+		snd_mixer_close(handle);
+		return -1;
+	}
+
+	// 3. 注册简单的元素类
+	if (snd_mixer_selem_register(handle, NULL, NULL) < 0) {
+		fprintf(stderr, "音量控制: 注册失败\n");
+		snd_mixer_close(handle);
+		return -1;
+	}
+
+	// 4. 加载混音器元素
+	if (snd_mixer_load(handle) < 0) {
+		fprintf(stderr, "音量控制: 加载元素失败\n");
+		snd_mixer_close(handle);
+		return -1;
+	}
+
+	*handle_out = handle;
+	return 0;
+}
+
+/**
+ * @brief 设置系统音量 (与 alsamixer 百分比一致)
+ * @param volume_percent 音量百分比 (0-100)
+ * @return 0 成功, -1 失败
+ *
+ * 使用 alsamixer 相同的感知刻度公式:
+ * dB = max_dB + 60 * log10(percent / 100)
+ */
+int audio_engine_set_volume(int volume_percent)
+{
+	long min_db, max_db;
+	snd_mixer_t *handle = NULL;
+	int ret = -1;
+
+	// 限制音量范围
+	if (volume_percent < 0) volume_percent = 0;
+	if (volume_percent > 100) volume_percent = 100;
+
+	// 打开混音器
+	if (open_mixer(&handle) < 0) {
+		return -1;
+	}
+
+	// 查找 Playback 控制元素
+	snd_mixer_elem_t *elem = find_mixer_elem(handle);
+	if (!elem) {
+		fprintf(stderr, "音量控制: 未找到控制项 '%s'\n", MIXER_SELEM_NAME);
+		goto cleanup;
+	}
+
+	// 获取 dB 范围
+	if (snd_mixer_selem_get_playback_dB_range(elem, &min_db, &max_db) < 0) {
+		fprintf(stderr, "音量控制: 无法获取 dB 范围\n");
+		goto cleanup;
+	}
+
+	// 计算目标 dB 值 (使用 alsamixer 感知刻度公式)
+	long target_db;
+	if (volume_percent == 0) {
+		target_db = min_db;  // 静音
+	} else {
+		// dB = max_dB + 60 * log10(percent / 100)
+		// 单位转换: ALSA 使用 0.01 dB，所以乘以 100
+		double db_offset = PERCEPTUAL_DB_RANGE * log10(volume_percent / 100.0);
+		target_db = max_db + (long)(db_offset * 100.0);
+
+		// 确保不低于最小值
+		if (target_db < min_db) target_db = min_db;
+	}
+
+	// 设置音量 (dir=0 表示精确匹配，dir=1 表示向上取整)
+	if (snd_mixer_selem_set_playback_dB_all(elem, target_db, 0) < 0) {
+		fprintf(stderr, "音量控制: 设置音量失败\n");
+		goto cleanup;
+	}
+
+	printf("音量控制: 设置 '%s' 音量为 %d%% (%.2f dB)\n",
+	       MIXER_SELEM_NAME, volume_percent, target_db / 100.0);
+	ret = 0;
+
+cleanup:
+	if (handle) {
+		snd_mixer_close(handle);
+	}
+	return ret;
+}
+
+/**
+ * @brief 获取当前系统音量 (与 alsamixer 百分比一致)
+ * @return 音量百分比 (0-100), -1 表示获取失败
+ *
+ * 使用 alsamixer 相同的感知刻度公式:
+ * percent = 10^((dB - max_dB) / 60) * 100
+ */
+int audio_engine_get_volume(void)
+{
+	long min_db, max_db, current_db;
+	snd_mixer_t *handle = NULL;
+	int ret = -1;
+
+	// 打开混音器
+	if (open_mixer(&handle) < 0) {
+		return -1;
+	}
+
+	// 查找 Playback 控制元素
+	snd_mixer_elem_t *elem = find_mixer_elem(handle);
+	if (!elem) {
+		fprintf(stderr, "音量控制: 未找到控制项 '%s'\n", MIXER_SELEM_NAME);
+		goto cleanup;
+	}
+
+	// 获取 dB 范围
+	if (snd_mixer_selem_get_playback_dB_range(elem, &min_db, &max_db) < 0) {
+		fprintf(stderr, "音量控制: 无法获取 dB 范围\n");
+		goto cleanup;
+	}
+
+	// 获取当前 dB 值
+	if (snd_mixer_selem_get_playback_dB(elem, SND_MIXER_SCHN_FRONT_LEFT, &current_db) < 0) {
+		fprintf(stderr, "音量控制: 无法获取当前音量\n");
+		goto cleanup;
+	}
+
+	// 使用感知刻度公式计算百分比
+	// percent = 10^((dB - max_dB) / 60) * 100
+	if (current_db <= min_db) {
+		ret = 0;
+	} else if (current_db >= max_db) {
+		ret = 100;
+	} else {
+		double db_offset = (current_db - max_db) / 100.0;  // 转换为 dB
+		double linear = pow(10.0, db_offset / PERCEPTUAL_DB_RANGE);
+		ret = (int)(linear * 100.0 + 0.5);  // 四舍五入
+		if (ret < 0) ret = 0;
+		if (ret > 100) ret = 100;
+	}
+
+cleanup:
+	if (handle) {
+		snd_mixer_close(handle);
+	}
+	return ret;
 }
 
 // ========== 解码线程 ==========
@@ -501,6 +694,9 @@ static void *playback_thread_func(void *arg)
 
 int audio_engine_init(void)
 {
+
+//	audio_engine_print_volume_info();
+
 	memset(&g_engine, 0, sizeof(g_engine));
 	pthread_mutex_init(&g_engine.status_mutex, NULL);
 
@@ -510,6 +706,11 @@ int audio_engine_init(void)
 
 	ring_buffer_init(&g_engine.ring_buffer);
 	g_engine.status = PLAYER_STATUS_STOPPED;
+
+	// 设置默认音量
+	if (audio_engine_set_volume(DEFAULT_VOLUME_PERCENT) < 0) {
+		fprintf(stderr, "警告: 设置默认音量失败，可能需要检查混音器配置\n");
+	}
 
 	return 0;
 }
