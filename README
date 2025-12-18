@@ -9,3 +9,24 @@ git clone --recurse-submodules <repository_url>
 cd <repository_directory>
 git submodule update --init --recursive
 ```
+
+# 记录开发流程
+
+不要直接提交代码到 master 分支，首先起一个分支，然后传到 github，
+一直 commit，push 到 这个分支，直到代码稳定了，在网页中将代码合并到 main 分支
+
+
+```
+git br feature/readme
+
+git pull origin main
+
+git add xxx
+
+git commit -m
+
+git push origin feature/readme
+
+```
+
+# 详细开发流程：
