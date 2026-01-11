@@ -18,6 +18,13 @@
 #define VOLUME_ICON_MID  "A:resources/image/audio/volume_mid.png"
 #define VOLUME_ICON_HIGH "A:resources/image/audio/volume_high.png"
 
+typedef struct {
+	char play_status[16];  // 上报播放状态：playing/stopping
+	char title[64];        // 上报歌曲名
+	char artist[64];       // 上报歌手名
+	char volume[16];       // 上报音量
+} audio_mqtt_track_t;
+
 // ========== UI 元素定义 ==========
 typedef struct {
 	// --- 主屏幕 ---
@@ -63,8 +70,9 @@ typedef struct {
 } audio_view_t;
 
 static audio_view_t g_audio_view = {0};
+static audio_mqtt_track_t g_audio_mqtt_track = {0};
 
-// ========== 辅助函数 ==========
+// ========== 辅助函数 ===========
 
 // 格式化时间 (ms -> mm:ss)
 static void format_time(int64_t ms, char *buf, int buf_size)
@@ -79,11 +87,19 @@ static void format_time(int64_t ms, char *buf, int buf_size)
 static void update_play_button(void) {
 	player_status_t status = audio_manager_get_status();
 	lv_obj_t *label = lv_obj_get_child(g_audio_view.play_btn, 0);
+	static player_status_t last_status = PLAYER_STATUS_STOPPED;
 
 	if (status == PLAYER_STATUS_PLAYING) {
 		lv_label_set_text(label, "||");
 	} else {
 		lv_label_set_text(label, ">");
+	}
+
+	if (last_status != status) {
+		char status_payload[16];
+		snprintf(status_payload, sizeof(status_payload), "%s", status == PLAYER_STATUS_PLAYING ? "playing" : "stopping");
+		memcpy(g_audio_mqtt_track.play_status, status_payload, sizeof(status_payload));
+		last_status = status;
 	}
 }
 
@@ -300,6 +316,13 @@ static void update_mete_data(void)
 		lv_label_set_text(g_audio_view.title_label, info->title ? info->title : "未知");
 		lv_label_set_text(g_audio_view.artist_label, info->artist ? info->artist : "未知歌手");
 
+		if (info->title && info->artist) {
+			char track_payload[256];
+			snprintf(track_payload, sizeof(track_payload), "%s-%s", info->title, info->artist);
+			memcpy(g_audio_mqtt_track.title, info->title, sizeof(g_audio_mqtt_track.title));
+			memcpy(g_audio_mqtt_track.artist, info->artist, sizeof(g_audio_mqtt_track.artist));
+		}
+
 		// 更新封面图
 		if (info->cover_path) {
 			// 使用文件路径加载封面图片
@@ -349,6 +372,11 @@ static void volume_slider_event_cb(lv_event_t *e)
 
 		// 更新图标
 		update_volume_icon(volume);
+
+		// 发布音量状态，通知 MQTT（使用 states Topic）
+		char volume_payload[16];
+		snprintf(volume_payload, sizeof(volume_payload), "%d", volume);
+		memcpy(g_audio_mqtt_track.volume, volume_payload, sizeof(volume_payload));
 	}
 }
 
@@ -452,10 +480,38 @@ static void playlist_item_event_cb(lv_event_t *e)
 	}
 }
 
+/* 每 1000ms 更新一次 MQTT 上报 */
+void update_mqtt_track(void)
+{
+
+	if (g_audio_mqtt_track.play_status) {
+		mqtt_client_publish(MQTT_CLIENT_STATUS_TOPIC, g_audio_mqtt_track.play_status);
+	}
+
+	if (g_audio_mqtt_track.title && g_audio_mqtt_track.artist) {
+		char track_payload[256];
+		snprintf(track_payload, sizeof(track_payload), "%s-%s", g_audio_mqtt_track.title, g_audio_mqtt_track.artist);
+		mqtt_client_publish(MQTT_CLIENT_TRACK_TOPIC, track_payload);
+	}
+
+	if (g_audio_mqtt_track.volume) {
+		mqtt_client_publish(MQTT_CLIENT_VOLUME_TOPIC, g_audio_mqtt_track.volume);
+	}
+
+}
+
+volatile unsigned int count = 0;
+
 // 定时器回调
 static void update_timer_cb(lv_timer_t *timer)
 {
+	(void)timer;
 	player_status_t status = audio_manager_get_status();
+
+	if (++count >= 10) {
+		update_mqtt_track();
+		count = 0;
+	}
 
 	if (status == PLAYER_STATUS_PLAYING) {
 		update_mete_data();

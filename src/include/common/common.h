@@ -19,6 +19,8 @@
 #include "src/lib/simulator_settings.h"
 
 #include "view_manager.h"
+#include "mqtt_client.h"
+#include "audio_engine.h"
 
 #ifdef VIEW_DEBUG_ON
 #define view_printf(fmt, args...)   printf("VIEW_DEBUG: " fmt, ## args)

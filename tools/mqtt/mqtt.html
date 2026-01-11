@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT 音乐播放器控制</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .player-container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 40px;
+            max-width: 420px;
+            width: 100%;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 30px;
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 20px;
+            font-size: 14px;
+            color: #fff;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ff4757;
+            transition: background 0.3s;
+        }
+
+        .status-dot.connected {
+            background: #2ed573;
+            box-shadow: 0 0 10px #2ed573;
+        }
+
+        .track-info {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .album-art {
+            width: 180px;
+            height: 180px;
+            background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+            border-radius: 16px;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 60px;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+
+        .track-title {
+            font-size: 22px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .track-artist {
+            font-size: 16px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .volume-control {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 25px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+        }
+
+        .volume-icon {
+            font-size: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            min-width: 24px;
+            text-align: center;
+        }
+
+        .volume-slider {
+            flex: 1;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .volume-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            border: none;
+        }
+
+        .volume-value {
+            min-width: 40px;
+            text-align: right;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+        }
+
+        .player-status {
+            text-align: center;
+            margin-top: 15px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .status-label {
+            display: inline-block;
+            padding: 4px 12px;
+            background: rgba(102, 126, 234, 0.3);
+            border-radius: 20px;
+            margin-left: 8px;
+            color: #fff;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .connecting .status-dot {
+            animation: pulse 1s infinite;
+            background: #ffa502;
+        }
+
+        .debug-panel {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .debug-panel h4 {
+            margin: 0 0 10px 0;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+        }
+
+        .debug-log {
+            max-height: 120px;
+            overflow-y: auto;
+            font-family: monospace;
+            line-height: 1.4;
+        }
+
+        .debug-log .error { color: #ff4757; }
+        .debug-log .success { color: #2ed573; }
+        .debug-log .info { color: #ffa502; }
+    </style>
+</head>
+<body>
+    <div class="player-container">
+        <!-- 浏览器连接状态 -->
+        <div class="connection-status" id="connectionStatus">
+            <span class="status-dot" id="statusDot"></span>
+            <span>浏览器: </span><span id="statusText">连接中...</span>
+        </div>
+
+        <!-- 开发板连接状态 -->
+        <div class="connection-status" id="deviceStatus">
+            <span class="status-dot" id="deviceDot"></span>
+            <span>开发板: </span><span id="deviceText">未知</span>
+        </div>
+
+        <!-- 曲目信息 -->
+        <div class="track-info">
+            <div class="album-art">🎵</div>
+            <div class="track-title" id="trackTitle">暂无歌曲</div>
+            <div class="track-artist" id="trackArtist">未知歌手</div>
+        </div>
+
+        <!-- 音量显示（只读） -->
+        <div class="volume-control">
+            <span class="volume-icon" id="volumeIcon">🔊</span>
+            <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="50" disabled style="pointer-events: none;">
+            <span class="volume-value" id="volumeValue">50%</span>
+        </div>
+
+        <!-- 播放状态 -->
+        <div class="player-status">
+            播放状态: <span class="status-label" id="playerStatus">已暂停</span>
+        </div>
+
+        <!-- 调试面板 -->
+        <div class="debug-panel">
+            <h4>🔧 调试信息</h4>
+            <div class="debug-log" id="debugLog"></div>
+        </div>
+    </div>
+
+    <script>
+        // ========== MQTT 配置 ==========
+        const host = "ma41c02e.ala.cn-hangzhou.emqxsl.cn";
+        const port = 8084;
+        const path = "/mqtt";
+        const clientId = "Browser_0";
+
+        // Topic 定义
+        const TOPICS = {
+            // 控制 (发布)
+            PLAY: "control/player/play",
+            NEXT: "control/player/next",
+            PREV: "control/player/prev",
+            VOLUME: "control/player/volume",
+            // 状态 (订阅)
+            STATUS: "states/player/status",
+            TRACK: "states/player/track",
+            VOLUME_STATE: "states/player/volume",
+            DEVICE_STATUS: "states/device/status"  // 开发板在线状态
+        };
+
+        // 音量控制变量
+        let volumeTimeout = null;
+
+        // 当前状态
+        let isPlaying = false;
+        let isConnected = false;
+        let currentVolume = 50;
+
+        // 调试日志函数
+        function debugLog(message, type = 'info') {
+            const logDiv = document.getElementById('debugLog');
+            const time = new Date().toLocaleTimeString();
+            const line = document.createElement('div');
+            line.className = type;
+            line.textContent = `[${time}] ${message}`;
+            logDiv.appendChild(line);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(`[${type}] ${message}`);
+        }
+
+        debugLog(`配置: ${host}:${port}${path}`, 'info');
+        debugLog(`Client ID: ${clientId}`, 'info');
+        debugLog(`用户名: Browser_0`, 'info');
+
+        // 创建 MQTT 客户端
+        const client = new Paho.MQTT.Client(host, Number(port), path, clientId);
+
+        // ========== 回调函数 ==========
+        client.onConnectionLost = function(responseObject) {
+            isConnected = false;
+            updateConnectionStatus(false, "离线 ❌");
+            debugLog("连接断开: " + responseObject.errorMessage, "error");
+            debugLog("3秒后重连...", "info");
+            setTimeout(connect, 3000);
+        };
+
+        client.onMessageArrived = function(message) {
+            const topic = message.destinationName;
+            const payload = message.payloadString;
+
+            debugLog(`收到: [${topic}] ${payload}`, "success");
+
+            switch (topic) {
+                case TOPICS.STATUS:
+                    handleStatusUpdate(payload);
+                    break;
+                case TOPICS.TRACK:
+                    handleTrackUpdate(payload);
+                    break;
+                case TOPICS.VOLUME_STATE:
+                    handleVolumeUpdate(payload);
+                    break;
+                case TOPICS.DEVICE_STATUS:
+                    handleDeviceStatus(payload);
+                    break;
+            }
+        };
+
+        // ========== 连接函数 ==========
+        function connect() {
+            updateConnectionStatus(null, "正在连接...");
+            document.getElementById("connectionStatus").classList.add("connecting");
+            debugLog("正在连接到 MQTT Broker...", "info");
+
+            const connectOptions = {
+                useSSL: true,
+                userName: "Browser_0",
+                password: "Password001",
+                onSuccess: onConnectSuccess,
+                onFailure: onConnectFailure,
+                keepAliveInterval: 60,
+                timeout: 30,
+                cleanSession: true
+            };
+
+            try {
+                client.connect(connectOptions);
+            } catch (e) {
+                debugLog("连接异常: " + e.message, "error");
+                updateConnectionStatus(false, "连接异常: " + e.message);
+            }
+        }
+
+        function onConnectSuccess() {
+            isConnected = true;
+            document.getElementById("connectionStatus").classList.remove("connecting");
+            updateConnectionStatus(true, "在线 ✅");
+            debugLog("连接成功!", "success");
+
+            // 订阅状态 Topic
+            client.subscribe(TOPICS.STATUS, { qos: 1 });
+            client.subscribe(TOPICS.TRACK, { qos: 1 });
+            client.subscribe(TOPICS.VOLUME_STATE, { qos: 1 });
+            client.subscribe(TOPICS.DEVICE_STATUS, { qos: 1 });
+
+            debugLog("已订阅: status, track, volume, device", "success");
+        }
+
+        function onConnectFailure(error) {
+            isConnected = false;
+            document.getElementById("connectionStatus").classList.remove("connecting");
+            const errorMsg = error.errorMessage || "未知错误";
+            const errorCode = error.errorCode || "";
+            updateConnectionStatus(false, "离线 ❌");
+            debugLog(`连接失败 [${errorCode}]: ${errorMsg}`, "error");
+            
+            // 提示可能的原因
+            if (errorCode === 5) {
+                debugLog("提示: 请检查用户名密码是否正确", "error");
+            } else if (errorMsg.includes("timeout")) {
+                debugLog("提示: 连接超时，请检查网络", "error");
+            }
+            
+            debugLog("5秒后重试...", "info");
+            setTimeout(connect, 5000);
+        }
+
+        // ========== UI 更新函数 ==========
+        function updateConnectionStatus(connected, text) {
+            const dot = document.getElementById("statusDot");
+            const statusText = document.getElementById("statusText");
+
+            if (connected === true) {
+                dot.classList.add("connected");
+            } else if (connected === false) {
+                dot.classList.remove("connected");
+            }
+
+            statusText.textContent = text;
+        }
+
+        function handleStatusUpdate(payload) {
+            const statusEl = document.getElementById("playerStatus");
+            const status = payload.toLowerCase();
+
+            if (status === "playing") {
+                isPlaying = true;
+                statusEl.textContent = "播放中 ▶";
+            } else {
+                // paused, stopped 等都统一为暂停状态
+                isPlaying = false;
+                statusEl.textContent = "已暂停 ⏸";
+            }
+        }
+
+        function handleTrackUpdate(payload) {
+            try {
+                // 尝试解析 JSON
+                const track = JSON.parse(payload);
+                document.getElementById("trackTitle").textContent = track.title || "未知曲目";
+                document.getElementById("trackArtist").textContent = track.artist || "未知歌手";
+            } catch (e) {
+                // 如果不是 JSON，直接显示（兼容 "title-artist" 格式）
+                const parts = payload.split("-");
+                if (parts.length >= 2) {
+                    document.getElementById("trackTitle").textContent = parts[0];
+                    document.getElementById("trackArtist").textContent = parts.slice(1).join("-");
+                } else {
+                    document.getElementById("trackTitle").textContent = payload;
+                }
+            }
+        }
+
+        function handleVolumeUpdate(payload) {
+            const vol = parseInt(payload, 10);
+            if (!isNaN(vol) && vol >= 0 && vol <= 100) {
+                currentVolume = vol;
+                updateVolumeUI(vol);
+            }
+        }
+
+        function updateVolumeUI(vol) {
+            document.getElementById('volumeSlider').value = vol;
+            document.getElementById('volumeValue').textContent = vol + '%';
+            
+            const icon = document.getElementById('volumeIcon');
+            if (vol === 0) {
+                icon.textContent = '🔇';
+            } else if (vol <= 33) {
+                icon.textContent = '🔈';
+            } else if (vol <= 66) {
+                icon.textContent = '🔉';
+            } else {
+                icon.textContent = '🔊';
+            }
+        }
+
+        function handleDeviceStatus(payload) {
+            const dot = document.getElementById('deviceDot');
+            const text = document.getElementById('deviceText');
+            const status = payload.toLowerCase();
+            
+            if (status === 'online') {
+                dot.classList.add('connected');
+                text.textContent = '在线 ✅';
+                debugLog('开发板上线', 'success');
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = '离线 ❌';
+                debugLog('开发板离线', 'error');
+            }
+        }
+
+        // ========== 控制函数 ==========
+        function sendCommand(topic, payload) {
+            if (!isConnected) {
+                debugLog("未连接，无法发送命令", "error");
+                return;
+            }
+
+            const message = new Paho.MQTT.Message(payload);
+            message.destinationName = topic;
+            message.qos = 1;
+            client.send(message);
+            debugLog(`发送: [${topic}] ${payload}`, "info");
+        }
+
+        function togglePlay() {
+            if (isPlaying) {
+                sendCommand(TOPICS.PLAY, "0");
+            } else {
+                sendCommand(TOPICS.PLAY, "1");
+            }
+        }
+
+        function sendNext() {
+            sendCommand(TOPICS.NEXT, "1");
+        }
+
+        function sendPrev() {
+            sendCommand(TOPICS.PREV, "1");
+        }
+
+        function onVolumeChange(value) {
+            const vol = parseInt(value, 10);
+            updateVolumeUI(vol);
+            
+            // 防抖：滑动过程中不立即发送，停止 200ms 后发送
+            if (volumeTimeout) {
+                clearTimeout(volumeTimeout);
+            }
+            volumeTimeout = setTimeout(() => {
+                sendCommand(TOPICS.VOLUME, String(vol));
+            }, 200);
+        }
+
+        // ========== 启动 ==========
+        connect();
+    </script>
+</body>
+</html>

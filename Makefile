@@ -1,6 +1,11 @@
 #
 # Makefile
 #
+#-> % arm-buildroot-linux-gnueabihf-gcc mqtt_test/main_test.c -o mqtt_test_app \
+#  -I paho.mqtt.c/src \
+#  -L paho.mqtt.c/build_arm/src \
+#  -l paho-mqtt3cs \
+#  -lpthread -ldl
 
 CROSS_COMPILE   = arm-buildroot-linux-gnueabihf-
 CC              = $(CROSS_COMPILE)gcc
@@ -32,6 +37,12 @@ LDFLAGS         += -lfreetype -lbrotlidec -lbrotlicommon -lts
 CFLAGS          += -I/home/tanxzh/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/host/arm-buildroot-linux-gnueabihf/sysroot/home/tanxzh/tools/lib/ffmpeg/include
 LDFLAGS         += -L/home/tanxzh/project/100ask/100ask_imx6ull_sdk/Buildroot_2020.02.x/output/host/arm-buildroot-linux-gnueabihf/sysroot/home/tanxzh/tools/lib/ffmpeg/lib
 LDFLAGS         += -lavutil -lavformat -lavcodec -lavdevice -lswresample -lasound
+
+# mqtt
+CFLAGS          += -I/home/tanxzh/tanxzh/code/MQTT/paho.mqtt.c/src
+LDFLAGS         += -L/home/tanxzh/tanxzh/code/MQTT/paho.mqtt.c/build_arm/src
+LDFLAGS         += -lpaho-mqtt3as -ldl
+
 
 BIN             = main
 BUILD_DIR       = ./build

@@ -170,6 +170,8 @@ int main(int argc, char **argv)
 	view_manager_register(&audio_view);
 	view_manager_register(&book_view);
 
+	mqtt_client_init();
+
 
 	// 注意这里的管道文件路径要改为你创建的管道路径，也就说在这之间要先用mkfifo创建一个管道出来
 //    sprintf(command_name,"mplayer -slave -quiet -ao alsa:device=hw=0,0 -input file=/mywork/lvgl_3568/lvgl_iPads/pipe /mywork/lvgl_3568/lvgl_iPads/%s",music_name);

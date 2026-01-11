@@ -694,9 +694,6 @@ static void *playback_thread_func(void *arg)
 
 int audio_engine_init(void)
 {
-
-//	audio_engine_print_volume_info();
-
 	memset(&g_engine, 0, sizeof(g_engine));
 	pthread_mutex_init(&g_engine.status_mutex, NULL);
 
